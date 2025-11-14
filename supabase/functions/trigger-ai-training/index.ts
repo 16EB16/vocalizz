@@ -36,6 +36,7 @@ serve(async (req) => {
     // 1. Authenticate user via JWT
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
+      console.error("Authentication Error: Missing Authorization header");
       return new Response(JSON.stringify({ error: "Unauthorized: Missing Authorization header" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -48,6 +49,7 @@ serve(async (req) => {
     const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
 
     if (authError || !user) {
+        console.error("Authentication Error: Invalid or expired token", authError);
         return new Response(JSON.stringify({ error: "Unauthorized: Invalid or expired token" }), {
             status: 401,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -58,11 +60,15 @@ serve(async (req) => {
     userId = user.id;
 
     // 2. Parse request body and validate parameters
-    const { model_id, user_id: body_user_id, storage_path, epochs, cleaning_option } = await req.json();
+    const body = await req.json();
+    const { model_id, user_id: body_user_id, storage_path, epochs, cleaning_option } = body;
     modelId = model_id; // Store model_id for potential error handling
+
+    console.log(`[AI Trigger] Received request for model ${modelId} by user ${userId}.`);
 
     // Security check: Ensure the user ID in the body matches the authenticated user ID
     if (body_user_id !== userId) {
+        console.error(`Forbidden: User ID mismatch. Auth ID: ${userId}, Body ID: ${body_user_id}`);
         return new Response(JSON.stringify({ error: "Forbidden: User ID mismatch." }), {
             status: 403,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -70,6 +76,7 @@ serve(async (req) => {
     }
 
     if (!model_id || !storage_path || !epochs) {
+      console.error("Missing required parameters:", { model_id, storage_path, epochs });
       return new Response(JSON.stringify({ error: "Missing required parameters (model_id, storage_path, epochs)." }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -78,7 +85,7 @@ serve(async (req) => {
 
     // 3. Check AI Service Key
     if (!REPLICATE_API_KEY) {
-        console.error("REPLICATE_API_KEY is not set.");
+        console.error("CRITICAL ERROR: REPLICATE_API_KEY is not set.");
         // Throw a specific error that will be caught below and logged in the DB
         throw new Error("Configuration error: La clé API du service IA (Replicate) est manquante. Veuillez la configurer.");
     }
@@ -88,6 +95,8 @@ serve(async (req) => {
 
     // 4. Call Replicate API to start training
     const audioDataPath = `s3://audio-files/${storage_path}`; 
+    
+    console.log(`[AI Trigger] Calling Replicate API. Path: ${audioDataPath}, Epochs: ${epochs}, Cleaning: ${applyCleaning}`);
 
     const replicateResponse = await fetch("https://api.replicate.com/v1/predictions", {
       method: "POST",
@@ -129,6 +138,7 @@ serve(async (req) => {
     const prediction = await replicateResponse.json();
     
     // 5. Update Supabase model status to 'processing'
+    console.log(`[AI Trigger] Replicate job started. External ID: ${prediction.id}. Updating DB status.`);
     const { error: updateError } = await supabaseAdmin
       .from("voice_models")
       .update({ 
