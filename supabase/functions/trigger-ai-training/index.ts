@@ -20,6 +20,9 @@ serve(async (req) => {
   }
 
   let modelId: string | undefined;
+  let userId: string | undefined;
+  
+  // Initialize Supabase Admin client (used for server-side updates)
   const supabaseAdmin = createClient(
     Deno.env.get("SUPABASE_URL") ?? "",
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "", // Use service role key for server-side updates
@@ -29,25 +32,50 @@ serve(async (req) => {
   );
 
   try {
-    const { model_id, user_id, storage_path, epochs, cleaning_option } = await req.json();
-    modelId = model_id; // Store model_id for potential error handling
-
-    if (!model_id || !user_id || !storage_path || !epochs) {
-      return new Response(JSON.stringify({ error: "Missing required parameters (model_id, user_id, storage_path, epochs)." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
     // 1. Authenticate user via JWT
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      return new Response(JSON.stringify({ error: "Unauthorized: Missing Authorization header" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
     
+    const token = authHeader.replace('Bearer ', '');
+    
+    // Use Supabase Admin client to verify the JWT and get user data
+    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
+
+    if (authError || !user) {
+        return new Response(JSON.stringify({ error: "Unauthorized: Invalid or expired token" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+    }
+    
+    // Set the verified user ID
+    userId = user.id;
+
+    // 2. Parse request body and validate parameters
+    const { model_id, user_id: body_user_id, storage_path, epochs, cleaning_option } = await req.json();
+    modelId = model_id; // Store model_id for potential error handling
+
+    // Security check: Ensure the user ID in the body matches the authenticated user ID
+    if (body_user_id !== userId) {
+        return new Response(JSON.stringify({ error: "Forbidden: User ID mismatch." }), {
+            status: 403,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+    }
+
+    if (!model_id || !storage_path || !epochs) {
+      return new Response(JSON.stringify({ error: "Missing required parameters (model_id, storage_path, epochs)." }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // 3. Check AI Service Key
     if (!REPLICATE_API_KEY) {
         console.error("REPLICATE_API_KEY is not set.");
         throw new Error("Configuration error: AI service key missing.");
@@ -56,8 +84,7 @@ serve(async (req) => {
     // Determine if cleaning should be applied
     const applyCleaning = cleaning_option === 'premium';
 
-    // 2. Call Replicate API to start training
-    // NOTE: storage_path should point to the directory containing the audio files in the Supabase Storage bucket 'audio-files'.
+    // 4. Call Replicate API to start training
     const audioDataPath = `s3://audio-files/${storage_path}`; 
 
     const replicateResponse = await fetch("https://api.replicate.com/v1/predictions", {
@@ -83,13 +110,13 @@ serve(async (req) => {
 
     if (!replicateResponse.ok) {
       const errorBody = await replicateResponse.json();
-      console.error("Replicate API Error:", errorBody);
-      throw new Error(`Failed to start AI training: ${replicateResponse.statusText}. Details: ${JSON.stringify(errorBody)}`);
+      console.error("Replicate API Error:", replicateResponse.status, errorBody);
+      throw new Error(`Failed to start AI training (Status: ${replicateResponse.status}). Details: ${JSON.stringify(errorBody)}`);
     }
 
     const prediction = await replicateResponse.json();
     
-    // 3. Update Supabase model status to 'processing'
+    // 5. Update Supabase model status to 'processing'
     const { error: updateError } = await supabaseAdmin
       .from("voice_models")
       .update({ 
@@ -111,16 +138,25 @@ serve(async (req) => {
   } catch (error) {
     console.error("AI Trigger Error:", error.message);
     
-    // If an error occurred, mark the model as failed in the DB
-    if (modelId) {
+    // If an error occurred, mark the model as failed in the DB and reset user training status
+    if (modelId && userId) {
+        const errorMessage = error.message || "Internal Server Error";
+        
+        // Update model status
         const { error: failError } = await supabaseAdmin
             .from("voice_models")
-            .update({ status: "failed", error_message: error.message }) // Record the error message
+            .update({ status: "failed", error_message: errorMessage }) // Record the error message
             .eq("id", modelId);
         
         if (failError) {
             console.error("Failed to mark model as failed:", failError);
         }
+        
+        // Reset user training status
+        await supabaseAdmin
+            .from('profiles')
+            .update({ is_in_training: false })
+            .eq('id', userId);
     }
 
     return new Response(JSON.stringify({ error: error.message }), {
