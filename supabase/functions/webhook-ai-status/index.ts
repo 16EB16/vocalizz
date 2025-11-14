@@ -97,8 +97,8 @@ serve(async (req) => {
     }
 
 
-    // 6. CRUCIAL: Delete source audio files if training succeeded
-    if (newStatus === 'completed') {
+    // 6. CRUCIAL: Delete source audio files if training succeeded OR failed
+    if (newStatus === 'completed' || newStatus === 'failed') {
         const sanitizedModelName = sanitizeModelName(model.name);
         const storagePathPrefix = `${model.user_id}/${sanitizedModelName}/`;
         const bucketName = 'audio-files';
@@ -110,7 +110,7 @@ serve(async (req) => {
 
         if (listError) {
             console.error("Error listing files for cleanup:", listError);
-            // Log error but continue, as the main job succeeded
+            // Log error but continue, as the main job succeeded/failed
         } else if (listData.length > 0) {
             const filesToDelete = listData
                 .filter(file => file.name !== '.emptyFolderPlaceholder')
@@ -122,10 +122,10 @@ serve(async (req) => {
                     .remove(filesToDelete);
 
                 if (deleteError) {
-                    console.error("Error deleting source files after completion:", deleteError);
+                    console.error("Error deleting source files after completion/failure:", deleteError);
                     // Log error but continue
                 } else {
-                    console.log(`Successfully deleted ${filesToDelete.length} source files for model ${model.id}.`);
+                    console.log(`Successfully deleted ${filesToDelete.length} source files for model ${model.id} due to status ${newStatus}.`);
                 }
             }
         }
