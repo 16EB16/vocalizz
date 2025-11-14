@@ -79,6 +79,7 @@ export type Database = {
           stripe_customer_id: string | null // New: Stripe Customer ID
           first_name: string | null // Added
           last_name: string | null // Added
+          is_in_training: boolean // NEW: Flag to prevent multiple simultaneous trainings
         }
         Insert: {
           id: string
@@ -87,6 +88,7 @@ export type Database = {
           stripe_customer_id?: string | null
           first_name?: string | null // Added
           last_name?: string | null // Added
+          is_in_training?: boolean // NEW
         }
         Update: {
           id?: string
@@ -95,6 +97,7 @@ export type Database = {
           stripe_customer_id?: string | null
           first_name?: string | null // Added
           last_name?: string | null // Added
+          is_in_training?: boolean // NEW
         }
         Relationships: [
           {

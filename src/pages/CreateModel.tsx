@@ -18,7 +18,8 @@ import { cn } from "@/lib/utils";
 import { getAudioDuration, formatDurationString, formatBytes } from "@/lib/audio-utils";
 import { Progress } from "@/components/ui/progress";
 import AudioFileList from "@/components/AudioFileList";
-import AudioAnalysisCard from "@/components/AudioAnalysisCard"; // Import the new component
+import AudioAnalysisCard from "@/components/AudioAnalysisCard";
+import { useQueryClient } from "@tanstack/react-query"; // Import QueryClient
 
 // Constants for POCH values
 const POCH_STANDARD = 500;
@@ -69,7 +70,8 @@ const simulateAnalysis = (totalDuration: number, minDuration: number) => {
 const CreateModel = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { isPremium, userId, isLoading: isStatusLoading } = useUserStatus();
+  const queryClient = useQueryClient();
+  const { isPremium, userId, isLoading: isStatusLoading, is_in_training } = useUserStatus(); // Read is_in_training
   const [files, setFiles] = useState<AudioFile[]>([]);
   const [totalSize, setTotalSize] = useState(0);
   const [totalDuration, setTotalDuration] = useState(0);
@@ -92,7 +94,11 @@ const CreateModel = () => {
   const modelNameWatch = form.watch("modelName");
   const isOverSizeLimit = totalSize > MAX_TOTAL_SIZE_MB * 1024 * 1024;
   const isMinDurationMet = totalDuration >= MIN_DURATION_SECONDS;
-  const canSubmit = files.length > 0 && !isOverSizeLimit && isMinDurationMet && !isSubmitting && !isCalculatingDuration && !nameError && modelNameWatch.length >= 3;
+  
+  // Block submission if user is already training a model
+  const isTrainingInProgress = is_in_training; 
+  
+  const canSubmit = files.length > 0 && !isOverSizeLimit && isMinDurationMet && !isSubmitting && !isCalculatingDuration && !nameError && modelNameWatch.length >= 3 && !isTrainingInProgress;
 
   // Update total size and duration whenever files change
   useEffect(() => {
@@ -253,14 +259,26 @@ const CreateModel = () => {
     let modelId: string | undefined;
 
     try {
-      // 1. Name check is already done in useEffect, but we re-check quickly
+      // 1. Set user status to 'is_in_training'
+      const { error: profileUpdateError } = await supabase
+        .from('profiles')
+        .update({ is_in_training: true })
+        .eq('id', userId);
+
+      if (profileUpdateError) throw new Error("Erreur lors de la mise à jour du statut d'entraînement.");
+      
+      // Invalidate profile query to update UI immediately
+      queryClient.invalidateQueries({ queryKey: ["userProfile"] });
+
+
+      // 2. Name check is already done in useEffect, but we re-check quickly
       if (nameError) throw new Error(nameError);
 
       // Sanitize model name for folder path
       const sanitizedModelName = sanitizeFileName(values.modelName);
       const storagePathPrefix = `${userId}/${sanitizedModelName}`;
 
-      // 2. Upload files to Supabase Storage
+      // 3. Upload files to Supabase Storage
       const totalFiles = files.length;
       let uploadedCount = 0;
 
@@ -293,7 +311,7 @@ const CreateModel = () => {
       
       setUploadProgress(100); // Upload complete
 
-      // 3. Create the voice model entry (Only after successful upload)
+      // 4. Create the voice model entry (Only after successful upload)
       const { data: modelData, error: modelError } = await supabase
         .from("voice_models")
         .insert({
@@ -301,7 +319,7 @@ const CreateModel = () => {
           name: values.modelName,
           quality: isPremiumModel ? "premium" : "standard",
           poch_value: pochValue,
-          status: "pending",
+          status: "preprocessing", // Set status to preprocessing initially
           file_count: files.length,
           is_premium_model: isPremiumModel,
           audio_duration_seconds: Math.round(totalDuration),
@@ -315,7 +333,7 @@ const CreateModel = () => {
       if (modelError || !modelData) throw modelError || new Error("Erreur lors de la création du modèle en base de données.");
       modelId = modelData.id; // Store ID for potential cleanup
 
-      // 4. Trigger External AI API (Crucial Step)
+      // 5. Trigger External AI API (Crucial Step)
       const { data: apiResponse, error: apiError } = await supabase.functions.invoke('trigger-ai-training', {
         body: {
           model_id: modelId,
@@ -354,6 +372,15 @@ const CreateModel = () => {
         description: error.message || "Une erreur est survenue lors de la création du modèle.",
       });
       
+      // IMPORTANT: If any step fails, reset is_in_training flag
+      if (userId) {
+        await supabase
+          .from('profiles')
+          .update({ is_in_training: false })
+          .eq('id', userId);
+        queryClient.invalidateQueries({ queryKey: ["userProfile"] });
+      }
+
     } finally {
       setIsSubmitting(false);
       setUploadProgress(null);
@@ -366,6 +393,34 @@ const CreateModel = () => {
         <Loader2 className="w-6 h-6 animate-spin mr-2" />
         <p className="text-foreground">Vérification du statut...</p>
       </div>
+    );
+  }
+
+  if (isTrainingInProgress) {
+    return (
+        <div className="max-w-3xl mx-auto space-y-6">
+            <h1 className="text-3xl font-bold text-foreground">Créer un modèle</h1>
+            <Card className="bg-card border-border border-primary/50">
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-primary">
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        Entraînement en cours
+                    </CardTitle>
+                    <CardDescription>
+                        Vous avez déjà un modèle en cours de création.
+                    </CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <p className="mb-4 text-muted-foreground">
+                        Pour éviter de saturer les ressources GPU, vous ne pouvez entraîner qu'un seul modèle à la fois.
+                        Veuillez attendre que votre modèle actuel soit terminé.
+                    </p>
+                    <Button onClick={() => navigate("/dashboard")}>
+                        Retour au Studio
+                    </Button>
+                </CardContent>
+            </Card>
+        </div>
     );
   }
 

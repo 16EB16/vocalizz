@@ -37,7 +37,7 @@ serve(async (req) => {
     // 2. Validate payload
     const externalJobId = payload.id;
     const status = payload.status; // e.g., 'succeeded', 'failed', 'canceled'
-    const output = payload.output; // e.g., URLs to the final RVC files
+    // const output = payload.output; // e.g., URLs to the final RVC files
 
     if (!externalJobId || !status) {
       return new Response(JSON.stringify({ error: "Invalid webhook payload." }), {
@@ -81,13 +81,22 @@ serve(async (req) => {
 
     if (updateError) {
       console.error("Supabase Webhook Update Error:", updateError);
-      return new Response(JSON.stringify({ error: "Database update failed." }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      // We continue to the next step even if model update failed, as resetting user status is critical.
     }
 
-    // 5. CRUCIAL: Delete source audio files if training succeeded
+    // 5. Reset user's is_in_training status
+    const { error: profileUpdateError } = await supabaseAdmin
+        .from('profiles')
+        .update({ is_in_training: false })
+        .eq('id', model.user_id);
+
+    if (profileUpdateError) {
+        console.error("Error resetting user training status:", profileUpdateError);
+        // Log error but continue
+    }
+
+
+    // 6. CRUCIAL: Delete source audio files if training succeeded
     if (newStatus === 'completed') {
         const sanitizedModelName = sanitizeModelName(model.name);
         const storagePathPrefix = `${model.user_id}/${sanitizedModelName}/`;

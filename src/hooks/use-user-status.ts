@@ -41,6 +41,7 @@ export const useUserStatus = () => {
   const role: UserRole = profile?.role ?? "standard";
   const stripeCustomerId = profile?.stripe_customer_id ?? null;
   const isPremium = role === "premium";
+  const is_in_training = profile?.is_in_training ?? false; // NEW: Read is_in_training
   const isLoading = isAuthLoading || isProfileLoading;
 
   return { 
@@ -48,6 +49,7 @@ export const useUserStatus = () => {
     role, 
     isPremium, 
     isLoading, 
-    stripeCustomerId 
+    stripeCustomerId,
+    is_in_training // NEW: Expose is_in_training
   };
 };
