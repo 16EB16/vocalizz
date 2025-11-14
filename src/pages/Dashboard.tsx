@@ -21,6 +21,7 @@ const MAX_FREE_MODELS = 5;
 
 // Utility function to format seconds into H:M:S
 const formatTimeElapsed = (totalSeconds: number): string => {
+  if (totalSeconds < 0) totalSeconds = 0;
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = Math.floor(totalSeconds % 60);
@@ -283,12 +284,18 @@ const Dashboard = () => {
             let timeElapsed = 0;
             let estimatedDurationMinutes = 0;
             let estimatedDurationString = "";
+            let timeRemainingString = "";
 
             if (isProcessing) {
                 const createdAt = new Date(model.created_at).getTime();
                 timeElapsed = Math.floor((currentTime - createdAt) / 1000);
                 estimatedDurationMinutes = estimateTrainingDurationMinutes(model.poch_value);
+                
+                const estimatedTotalSeconds = estimatedDurationMinutes * 60;
+                const timeRemainingSeconds = estimatedTotalSeconds - timeElapsed;
+                
                 estimatedDurationString = `${estimatedDurationMinutes} min`;
+                timeRemainingString = formatTimeElapsed(timeRemainingSeconds);
             }
 
             return (
@@ -340,7 +347,8 @@ const Dashboard = () => {
                       />
                       <div className="flex justify-between text-xs text-muted-foreground pt-1">
                         <span>Temps écoulé: {formatTimeElapsed(timeElapsed)}</span>
-                        <span>Est. totale: {estimatedDurationString}</span>
+                        {/* NEW: Display Time Remaining */}
+                        <span>Est. restante: {timeRemainingString}</span>
                       </div>
                     </div>
                   )}
