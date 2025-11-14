@@ -12,7 +12,8 @@ const corsHeaders = {
 
 // Assuming Replicate is used for RVC training
 const REPLICATE_API_KEY = Deno.env.get("REPLICATE_API_KEY");
-const RVC_MODEL_VERSION = "your/rvc-training-model:latest"; // Placeholder for the actual RVC model version
+// Using a common RVC model placeholder. NOTE: The user MUST replace this with their actual Replicate model version.
+const RVC_MODEL_VERSION = "rvc-model/rvc-training:latest"; 
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -79,7 +80,7 @@ serve(async (req) => {
     if (!REPLICATE_API_KEY) {
         console.error("REPLICATE_API_KEY is not set.");
         // Throw a specific error that will be caught below and logged in the DB
-        throw new Error("Configuration error: La clé API du service IA (Replicate) est manquante.");
+        throw new Error("Configuration error: La clé API du service IA (Replicate) est manquante. Veuillez la configurer.");
     }
 
     // Determine if cleaning should be applied
