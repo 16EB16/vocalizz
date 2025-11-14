@@ -10,7 +10,6 @@ import CreateModel from "./pages/CreateModel";
 import NotFound from "./pages/NotFound";
 import DashboardLayout from "./components/DashboardLayout";
 import Settings from "./pages/Settings";
-import Playground from "./pages/Playground"; // Import the new page
 
 const queryClient = new QueryClient();
 
@@ -29,7 +28,6 @@ const App = () => (
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/create" element={<CreateModel />} />
             <Route path="/settings" element={<Settings />} />
-            <Route path="/playground" element={<Playground />} /> {/* New Route */}
           </Route>
 
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

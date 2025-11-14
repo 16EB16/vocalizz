@@ -1,7 +1,7 @@
 import React, { useMemo } from "react";
 import { NavLink } from "@/components/NavLink";
 import { cn } from "@/lib/utils";
-import { Home, PlusCircle, Settings, LogOut, Crown, User, Loader2, PlayCircle } from "lucide-react";
+import { Home, PlusCircle, Settings, LogOut, Crown, User, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useUserStatus } from "@/hooks/use-user-status";
 import { useUserProfile } from "@/hooks/use-user-profile"; // Import useUserProfile
@@ -88,7 +88,6 @@ export const Header = ({ onSignOut }: HeaderProps) => {
         <nav className="flex items-center gap-2">
           <NavItem to="/dashboard" icon={<Home className="h-4 w-4" />} label="Dashboard" />
           <NavItem to="/create" icon={<PlusCircle className="h-4 w-4" />} label="Créer Modèle" />
-          <NavItem to="/playground" icon={<PlayCircle className="h-4 w-4" />} label="Playground" /> {/* New Nav Item */}
           <NavItem to="/settings" icon={<Settings className="h-4 w-4" />} label="Paramètres" />
         </nav>
 
