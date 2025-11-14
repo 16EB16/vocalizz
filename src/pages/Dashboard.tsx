@@ -296,7 +296,10 @@ const Dashboard = () => {
               {model.status === "failed" && (
                 <div className="p-3 bg-destructive/10 border border-destructive rounded-lg text-sm text-destructive flex items-center gap-2">
                     <AlertTriangle className="w-4 h-4 shrink-0" />
-                    <span>L'entraînement a échoué. Veuillez vérifier vos fichiers audio et réessayer.</span>
+                    <span>
+                        L'entraînement a échoué. 
+                        {model.error_message ? ` Détails: ${model.error_message.substring(0, 100)}...` : " Veuillez vérifier vos fichiers audio et réessayer."}
+                    </span>
                 </div>
               )}
               
