@@ -10,7 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useUserStatus } from "@/hooks/use-user-status";
 import { useVoiceModels, VoiceModel } from "@/hooks/use-voice-models";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Download, Trash2, Clock, Crown, Zap, Loader2, AlertTriangle, PlayCircle, Sparkles } from "lucide-react";
+import { Plus, Download, Trash2, Clock, Crown, Zap, Loader2, AlertTriangle, PlayCircle, Sparkles, Cpu } from "lucide-react";
 import BillingPortalButton from "@/components/BillingPortalButton";
 import { formatDurationString } from "@/lib/audio-utils";
 import ModelCardSkeleton from "@/components/ModelCardSkeleton";
@@ -23,12 +23,16 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { isPremium, userId, isLoading: isUserStatusLoading } = useUserStatus();
+  const { isPremium, userId, isLoading: isUserStatusLoading, is_in_training } = useUserStatus();
 
   // 1. Data Fetching using TanStack Query
   const { data: models, isLoading: isModelsLoading, isError } = useVoiceModels(userId);
   const modelList = models || [];
   const canCreateNewModel = isPremium || modelList.length < MAX_FREE_MODELS;
+  
+  // Identify the model currently being processed
+  const processingModel = modelList.find(m => m.status === 'processing' || m.status === 'preprocessing');
+
 
   // 2. Data Mutation (Deletion)
   const deleteModelMutation = useMutation({
@@ -57,6 +61,8 @@ const Dashboard = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["voiceModels"] });
+      // Also invalidate user profile in case the deleted model was the one blocking training
+      queryClient.invalidateQueries({ queryKey: ["userProfile"] }); 
       toast({
         title: "Modèle supprimé",
         description: "Le modèle et ses fichiers ont été supprimés avec succès.",
@@ -91,6 +97,8 @@ const Dashboard = () => {
         },
         () => {
           queryClient.invalidateQueries({ queryKey: ["voiceModels", userId] });
+          // Invalidate profile to catch is_in_training status changes
+          queryClient.invalidateQueries({ queryKey: ["userProfile"] }); 
         }
       )
       .subscribe();
@@ -184,7 +192,10 @@ const Dashboard = () => {
       case "completed":
         return <Badge className="bg-green-500 hover:bg-green-500/80">Prêt</Badge>;
       case "processing":
-        return <Badge className="bg-primary hover:bg-primary/80">Entraînement</Badge>;
+      case "preprocessing":
+        return <Badge className="bg-primary hover:bg-primary/80 flex items-center gap-1">
+            <Cpu className="w-3 h-3" /> Entraînement
+        </Badge>;
       case "failed":
         return <Badge variant="destructive" className="flex items-center gap-1">
             <AlertTriangle className="w-3 h-3" /> Échoué
@@ -240,6 +251,8 @@ const Dashboard = () => {
               model.is_premium_model 
                 ? "border-2 border-yellow-500 shadow-lg shadow-yellow-300/30 hover:border-yellow-400" 
                 : "hover:border-primary/50"
+            } ${
+                (model.status === 'processing' || model.status === 'preprocessing') ? "animate-pulse-slow border-primary/50" : ""
             }`}
           >
             <CardHeader>
@@ -267,7 +280,7 @@ const Dashboard = () => {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {model.status === "processing" && model.progress !== null && (
+              {(model.status === "processing" || model.status === "preprocessing") && model.progress !== null && (
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
                     <span>Progression</span>
@@ -384,13 +397,13 @@ const Dashboard = () => {
   return (
     <div className="space-y-8">
       <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold text-foreground">Studio (Dashboard Principal)</h1>
+        <h1 className="text-3xl font-bold text-foreground">Studio</h1>
         <div className="flex gap-2">
           <BillingPortalButton isPremium={isPremium} />
           <Button 
             onClick={handleCreateModelClick} 
             className="gap-2"
-            disabled={!canCreateNewModel}
+            disabled={!canCreateNewModel || is_in_training}
           >
             <Plus className="w-4 h-4" />
             Nouveau modèle
@@ -398,7 +411,21 @@ const Dashboard = () => {
         </div>
       </div>
       
-      {!isPremium && (
+      {is_in_training && processingModel && (
+        <div className="p-4 bg-primary/10 border border-primary/30 text-primary rounded-lg flex justify-between items-center gap-4">
+            <div className="flex items-center gap-3">
+                <Cpu className="w-5 h-5 animate-pulse" />
+                <p className="text-sm font-medium">
+                    Entraînement en cours : <span className="font-bold">{processingModel.name}</span> ({processingModel.poch_value} POCH). Vous ne pouvez lancer qu'un seul entraînement à la fois.
+                </p>
+            </div>
+            <Button variant="secondary" size="sm" onClick={() => navigate("/create")}>
+                Voir le statut
+            </Button>
+        </div>
+      )}
+
+      {!isPremium && !is_in_training && (
         <div className="p-4 bg-yellow-100 border border-yellow-300 text-yellow-800 rounded-lg flex justify-between items-center">
           <p className="text-sm font-medium">
             Vous êtes en version gratuite. Limite: {modelList.length}/{MAX_FREE_MODELS} modèles créés.
