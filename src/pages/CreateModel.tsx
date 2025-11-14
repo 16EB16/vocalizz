@@ -156,7 +156,13 @@ const CreateModel = () => {
         // Calculate duration for each new file
         const filesWithDurationPromises = audioFiles.map(async (file) => {
             const duration = await getAudioDuration(file);
-            return { ...file, duration } as AudioFile;
+            
+            // CRUCIAL FIX: Explicitly create a new File object with the duration property
+            // We use the File constructor to ensure it retains all File/Blob properties (like name, size, type)
+            const audioFileWithDuration = new File([file], file.name, { type: file.type }) as AudioFile;
+            audioFileWithDuration.duration = duration;
+            
+            return audioFileWithDuration;
         });
 
         const filesWithDuration = await Promise.all(filesWithDurationPromises);
