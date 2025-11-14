@@ -10,7 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useUserStatus } from "@/hooks/use-user-status";
 import { useVoiceModels, VoiceModel } from "@/hooks/use-voice-models";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Download, Trash2, Clock, Crown, Zap, Loader2, AlertTriangle, PlayCircle, Sparkles, Cpu } from "lucide-react";
+import { Plus, Download, Trash2, Clock, Crown, Zap, Loader2, AlertTriangle, PlayCircle, Sparkles, Cpu, Mic } from "lucide-react";
 import BillingPortalButton from "@/components/BillingPortalButton";
 import { formatDurationString } from "@/lib/audio-utils";
 import ModelCardSkeleton from "@/components/ModelCardSkeleton";
@@ -183,8 +183,6 @@ const Dashboard = () => {
   };
   // --- END REALISTIC DOWNLOAD FUNCTION ---
 
-  // Removed handleTestModel function
-
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "completed":
@@ -201,6 +199,13 @@ const Dashboard = () => {
       default:
         return <Badge variant="secondary">En file d'attente</Badge>;
     }
+  };
+  
+  const getQualityScoreColor = (score: number | null) => {
+    if (score === null) return "text-muted-foreground";
+    if (score < 50) return "text-destructive";
+    if (score < 75) return "text-yellow-600";
+    return "text-green-600";
   };
 
   const renderModelCards = () => {
@@ -301,6 +306,18 @@ const Dashboard = () => {
                 </div>
               )}
               
+              {/* NEW: Source Quality Score */}
+              {model.score_qualite_source !== null && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Mic className="w-4 h-4" />
+                    <span>Qualité Source: 
+                        <span className={cn("font-semibold ml-1", getQualityScoreColor(model.score_qualite_source))}>
+                            {model.score_qualite_source}/100
+                        </span>
+                    </span>
+                </div>
+              )}
+
               {/* NEW: Cleaning Applied Status */}
               {model.cleaning_applied && (
                 <div className="flex items-center gap-2 text-sm text-yellow-600">
