@@ -10,9 +10,9 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Utility function to sanitize model name (must match frontend/create-model logic)
-const sanitizeModelName = (name: string) => {
-    const safeName = String(name || 'untitled');
+// Utility function to sanitize model name (MUST match frontend/create-model logic)
+const sanitizeModelName = (name: string | undefined) => {
+    const safeName = String(name || 'untitled_file');
     const normalized = safeName.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     return normalized
       .replace(/[^a-zA-Z0-9.]/g, '_')
@@ -73,7 +73,17 @@ serve(async (req) => {
     }
 
     // 3. Extract file paths relative to the bucket root
-    const filesToDelete = listData.map(file => `${storagePathPrefix}${file.name}`);
+    // We must ensure we only delete files, not directories, by checking if the name is not empty/a placeholder
+    const filesToDelete = listData
+        .filter(file => file.name !== '.emptyFolderPlaceholder') // Ignore placeholder files if any
+        .map(file => `${storagePathPrefix}${file.name}`);
+
+    if (filesToDelete.length === 0) {
+        return new Response(JSON.stringify({ success: true, message: "No actual files found to delete." }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+            status: 200,
+        });
+    }
 
     // 4. Delete the files
     const { error: deleteError } = await supabaseAdmin.storage

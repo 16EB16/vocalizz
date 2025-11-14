@@ -14,7 +14,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { cn } from "@/lib/utils";
+import { cn, sanitizeFileName } from "@/lib/utils";
 import { getAudioDuration, formatDurationString, formatBytes } from "@/lib/audio-utils";
 import { Progress } from "@/components/ui/progress";
 import AudioFileList from "@/components/AudioFileList";
@@ -42,16 +42,6 @@ const formSchema = z.object({
 });
 
 type ModelFormValues = z.infer<typeof formSchema>;
-
-// Utility function to sanitize file names for storage paths
-const sanitizeFileName = (name: string | undefined) => {
-  const safeName = String(name || 'untitled_file'); // Use 'untitled_file' as fallback
-  const normalized = safeName.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  return normalized
-    .replace(/[^a-zA-Z0-9.]/g, '_')
-    .replace(/_{2,}/g, '_')
-    .toLowerCase();
-};
 
 const CreateModel = () => {
   const navigate = useNavigate();
@@ -280,7 +270,7 @@ const CreateModel = () => {
           .from('audio-files')
           .upload(filePath, file, {
             cacheControl: '3600',
-            upsert: true // <-- Changed to true to allow overwriting if model name is reused
+            upsert: true // <-- Already set to true
           })
           .then(res => {
             if (res.error) {

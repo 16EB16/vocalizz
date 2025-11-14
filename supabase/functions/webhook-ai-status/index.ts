@@ -7,9 +7,9 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Utility function to sanitize model name (must match frontend/delete-model-files logic)
-const sanitizeModelName = (name: string) => {
-    const safeName = String(name || 'untitled');
+// Utility function to sanitize model name (MUST match frontend/create-model logic)
+const sanitizeModelName = (name: string | undefined) => {
+    const safeName = String(name || 'untitled_file');
     const normalized = safeName.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     return normalized
       .replace(/[^a-zA-Z0-9.]/g, '_')
@@ -62,8 +62,9 @@ serve(async (req) => {
 
     if (fetchError || !model) {
         console.error("Model not found for external job ID:", externalJobId);
-        return new Response(JSON.stringify({ error: "Model not found." }), {
-            status: 404,
+        // If the model is not found, it might have been deleted by the user. We return 200 to stop retries.
+        return new Response(JSON.stringify({ success: true, message: "Model not found, likely deleted by user." }), {
+            status: 200,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
     }
@@ -111,17 +112,21 @@ serve(async (req) => {
             console.error("Error listing files for cleanup:", listError);
             // Log error but continue, as the main job succeeded
         } else if (listData.length > 0) {
-            const filesToDelete = listData.map(file => `${storagePathPrefix}${file.name}`);
+            const filesToDelete = listData
+                .filter(file => file.name !== '.emptyFolderPlaceholder')
+                .map(file => `${storagePathPrefix}${file.name}`);
             
-            const { error: deleteError } = await supabaseAdmin.storage
-                .from(bucketName)
-                .remove(filesToDelete);
+            if (filesToDelete.length > 0) {
+                const { error: deleteError } = await supabaseAdmin.storage
+                    .from(bucketName)
+                    .remove(filesToDelete);
 
-            if (deleteError) {
-                console.error("Error deleting source files after completion:", deleteError);
-                // Log error but continue
-            } else {
-                console.log(`Successfully deleted ${filesToDelete.length} source files for model ${model.id}.`);
+                if (deleteError) {
+                    console.error("Error deleting source files after completion:", deleteError);
+                    // Log error but continue
+                } else {
+                    console.log(`Successfully deleted ${filesToDelete.length} source files for model ${model.id}.`);
+                }
             }
         }
     }
