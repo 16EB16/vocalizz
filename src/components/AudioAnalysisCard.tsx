@@ -3,10 +3,10 @@ import { Progress } from "@/components/ui/progress";
 import { Zap, AlertTriangle, CheckCircle, Sparkles, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUserStatus } from "@/hooks/use-user-status";
-import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
+import { useAudioAnalysis } from "@/hooks/use-audio-analysis"; // Import the new hook
 
 interface AudioAnalysisCardProps {
   totalDuration: number;
@@ -15,30 +15,6 @@ interface AudioAnalysisCardProps {
   onCleaningOptionChange: (value: 'none' | 'premium') => void;
   cleaningOption: 'none' | 'premium';
 }
-
-// Simulation de l'analyse IA
-const simulateAnalysis = (totalDuration: number, minDuration: number) => {
-  const isMinDurationMet = totalDuration >= minDuration;
-  
-  // Score de qualité simulé (basé sur la durée, mais pourrait être plus complexe)
-  let qualityScore = Math.min(100, Math.floor((totalDuration / (minDuration * 2)) * 100) + 50);
-  
-  let feedback = "Analyse IA terminée. Qualité du matériel source excellente.";
-  let issues = [];
-
-  if (totalDuration < minDuration) {
-    qualityScore = Math.min(qualityScore, 40);
-    issues.push("Durée insuffisante. L'entraînement pourrait être de faible qualité.");
-  } else if (qualityScore < 70) {
-    issues.push("Bruit de fond et silences détectés (estimation: 15%).");
-  }
-
-  if (issues.length > 0) {
-    feedback = issues.join(' ');
-  }
-
-  return { qualityScore, feedback, isMinDurationMet };
-};
 
 const AudioAnalysisCard = ({ 
   totalDuration, 
@@ -49,8 +25,8 @@ const AudioAnalysisCard = ({
 }: AudioAnalysisCardProps) => {
   const { isPremium } = useUserStatus();
   
-  const { qualityScore, feedback, isMinDurationMet } = simulateAnalysis(totalDuration, minDurationSeconds);
-  const isLowQuality = qualityScore < 70;
+  // Use the new hook for analysis logic
+  const { qualityScore, feedback, isLowQuality } = useAudioAnalysis(totalDuration);
 
   if (isCalculating) {
     return (

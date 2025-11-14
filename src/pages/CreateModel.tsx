@@ -19,7 +19,8 @@ import { getAudioDuration, formatDurationString, formatBytes } from "@/lib/audio
 import { Progress } from "@/components/ui/progress";
 import AudioFileList from "@/components/AudioFileList";
 import AudioAnalysisCard from "@/components/AudioAnalysisCard";
-import { useQueryClient } from "@tanstack/react-query"; // Import QueryClient
+import { useQueryClient } from "@tanstack/react-query";
+import { useAudioAnalysis } from "@/hooks/use-audio-analysis"; // Import the new hook
 
 // Constants for POCH values
 const POCH_STANDARD = 500;
@@ -52,26 +53,11 @@ const sanitizeFileName = (name: string) => {
     .toLowerCase();
 };
 
-// Simulation de l'analyse IA (doit être cohérente avec AudioAnalysisCard)
-const simulateAnalysis = (totalDuration: number, minDuration: number) => {
-  // Score de qualité simulé (basé sur la durée, mais pourrait être plus complexe)
-  let qualityScore = Math.min(100, Math.floor((totalDuration / (minDuration * 2)) * 100) + 50);
-  
-  if (totalDuration < minDuration) {
-    qualityScore = Math.min(qualityScore, 40);
-  } else if (qualityScore < 70) {
-    // Simulate noise detection
-  }
-
-  return qualityScore;
-};
-
-
 const CreateModel = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { isPremium, userId, isLoading: isStatusLoading, is_in_training } = useUserStatus(); // Read is_in_training
+  const { isPremium, userId, isLoading: isStatusLoading, is_in_training } = useUserStatus();
   const [files, setFiles] = useState<AudioFile[]>([]);
   const [totalSize, setTotalSize] = useState(0);
   const [totalDuration, setTotalDuration] = useState(0);
@@ -81,7 +67,7 @@ const CreateModel = () => {
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [isNameChecking, setIsNameChecking] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
-  const [cleaningOption, setCleaningOption] = useState<'none' | 'premium'>('none'); // New state for cleaning
+  const [cleaningOption, setCleaningOption] = useState<'none' | 'premium'>('none');
 
   const form = useForm<ModelFormValues>({
     resolver: zodResolver(formSchema),
@@ -90,6 +76,9 @@ const CreateModel = () => {
       qualityPoch: String(POCH_STANDARD),
     },
   });
+  
+  // Use the analysis hook
+  const { qualityScore } = useAudioAnalysis(totalDuration);
 
   const modelNameWatch = form.watch("modelName");
   const isOverSizeLimit = totalSize > MAX_TOTAL_SIZE_MB * 1024 * 1024;
@@ -251,7 +240,8 @@ const CreateModel = () => {
     
     const pochValue = Number(values.qualityPoch);
     const isPremiumModel = pochValue === POCH_PREMIUM;
-    const qualityScore = simulateAnalysis(totalDuration, MIN_DURATION_SECONDS); // Get simulated score
+    // Use the calculated quality score
+    const finalQualityScore = qualityScore; 
 
     setIsSubmitting(true);
     setUploadProgress(0);
@@ -323,7 +313,7 @@ const CreateModel = () => {
           is_premium_model: isPremiumModel,
           audio_duration_seconds: Math.round(totalDuration),
           // New fields based on analysis and cleaning choice
-          score_qualite_source: qualityScore,
+          score_qualite_source: finalQualityScore, // Use the calculated score
           cleaning_applied: cleaningOption === 'premium', // Track if cleaning was requested
         })
         .select('id')
