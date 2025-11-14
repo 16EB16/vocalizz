@@ -284,8 +284,7 @@ const CreateModel = () => {
           });
       });
 
-      // Use Promise.allSettled to ensure all uploads are attempted, but we rely on the .then() above to throw on error
-      // We use Promise.all here to fail fast if any upload fails.
+      // Use Promise.all here to fail fast if any upload fails.
       await Promise.all(uploadPromises);
       
       setUploadProgress(100); // Upload complete
@@ -326,15 +325,29 @@ const CreateModel = () => {
 
       // Check for application-level errors returned by the Edge Function
       if (apiError || (apiResponse && apiResponse.error)) {
-        const errorMessage = apiError?.message || apiResponse.error || "Erreur inconnue lors du lancement de l'IA.";
+        // --- RADICAL SOLUTION: Fetch detailed error message from DB ---
+        let detailedErrorMessage = apiError?.message || apiResponse?.error || "Erreur inconnue lors du lancement de l'IA.";
         
-        // If AI trigger fails, update DB status to failed and record error message
-        await supabase
-            .from("voice_models")
-            .update({ status: "failed", error_message: errorMessage })
-            .eq("id", modelId);
+        // If we have a model ID, try to fetch the detailed error message recorded by the Edge Function
+        if (modelId) {
+            const { data: failedModel, error: fetchFailedError } = await supabase
+                .from("voice_models")
+                .select("error_message")
+                .eq("id", modelId)
+                .single();
+            
+            if (failedModel?.error_message) {
+                detailedErrorMessage = failedModel.error_message;
+            } else if (fetchFailedError) {
+                console.error("Failed to fetch detailed error message:", fetchFailedError);
+            }
+        }
+        // --- END RADICAL SOLUTION ---
 
-        throw new Error(`Erreur de lancement IA: ${errorMessage}`);
+        // If AI trigger fails, update DB status to failed and record error message
+        // NOTE: The Edge Function already does this, but we ensure the user status is reset and the error is thrown.
+        
+        throw new Error(`Erreur de lancement IA: ${detailedErrorMessage}`);
       }
 
       toast({
@@ -345,10 +358,14 @@ const CreateModel = () => {
       navigate("/dashboard");
     } catch (error: any) {
       console.error("Creation error:", error);
+      
+      // Extract the error message to display
+      const displayMessage = error.message || "Une erreur est survenue lors de la création du modèle.";
+
       toast({
         variant: "destructive",
         title: "Erreur",
-        description: error.message || "Une erreur est survenue lors de la création du modèle.",
+        description: displayMessage,
       });
       
       // IMPORTANT: If any step fails, reset is_in_training flag
