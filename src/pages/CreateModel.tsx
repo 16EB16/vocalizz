@@ -226,13 +226,18 @@ const CreateModel = () => {
   };
 
   const onSubmit = async (values: ModelFormValues) => {
+    console.log("[CreateModel] --- Démarrage de la soumission du modèle ---");
+    console.log(`[CreateModel] User ID: ${userId}`);
+    
     if (!userId) {
       toast({ variant: "destructive", title: "Erreur", description: "Vous devez être connecté." });
+      setIsSubmitting(false);
       return;
     }
 
     if (!canSubmit) {
         toast({ variant: "destructive", title: "Validation manquante", description: "Veuillez vérifier le nom du modèle et les exigences audio." });
+        setIsSubmitting(false);
         return;
     }
     
@@ -258,6 +263,7 @@ const CreateModel = () => {
       if (profileUpdateError) throw new Error("Erreur lors de la mise à jour du statut d'entraînement.");
       
       queryClient.invalidateQueries({ queryKey: ["userProfile"] });
+      console.log("[CreateModel] Statut utilisateur mis à jour. Invalidation du cache du profil.");
 
       // 2. Name check is already done in useEffect, but we re-check quickly
       if (nameError) throw new Error(nameError);
@@ -328,6 +334,7 @@ const CreateModel = () => {
       if (modelError || !modelData) throw modelError || new Error("Erreur lors de la création du modèle en base de données.");
       modelId = modelData.id; // Store ID for potential cleanup
       console.log(`[CreateModel] Entrée DB créée. Model ID: ${modelId}`);
+      queryClient.invalidateQueries({ queryKey: ["voiceModels"] }); // Trigger dashboard refresh
 
       // 5. Trigger External AI API (Crucial Step)
       console.log("[CreateModel] Étape 4/5: Appel de la fonction Edge 'trigger-ai-training'.");
@@ -399,6 +406,7 @@ const CreateModel = () => {
     } finally {
       setIsSubmitting(false);
       setUploadProgress(null);
+      console.log("[CreateModel] --- Fin de la soumission du modèle ---");
     }
   };
 
