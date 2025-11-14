@@ -1,0 +1,131 @@
+// @ts-nocheck
+/// <reference types="https://deno.land/std@0.190.0/http/server.ts" />
+/// <reference types="https://esm.sh/@supabase/supabase-js@2.45.0" />
+
+import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+// Assuming Replicate is used for RVC training
+const REPLICATE_API_KEY = Deno.env.get("REPLICATE_API_KEY");
+const RVC_MODEL_VERSION = "your/rvc-training-model:latest"; // Placeholder for the actual RVC model version
+
+serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  let modelId: string | undefined;
+  const supabaseAdmin = createClient(
+    Deno.env.get("SUPABASE_URL") ?? "",
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "", // Use service role key for server-side updates
+    {
+      auth: { persistSession: false },
+    }
+  );
+
+  try {
+    const { model_id, user_id, storage_path, epochs, cleaning_option } = await req.json();
+    modelId = model_id; // Store model_id for potential error handling
+
+    if (!model_id || !user_id || !storage_path || !epochs) {
+      return new Response(JSON.stringify({ error: "Missing required parameters (model_id, user_id, storage_path, epochs)." }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // 1. Authenticate user via JWT
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    
+    if (!REPLICATE_API_KEY) {
+        console.error("REPLICATE_API_KEY is not set.");
+        throw new Error("Configuration error: AI service key missing.");
+    }
+
+    // Determine if cleaning should be applied
+    const applyCleaning = cleaning_option === 'premium';
+
+    // 2. Call Replicate API to start training
+    // NOTE: storage_path should point to the directory containing the audio files in the Supabase Storage bucket 'audio-files'.
+    const audioDataPath = `s3://audio-files/${storage_path}`; 
+
+    const replicateResponse = await fetch("https://api.replicate.com/v1/predictions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Token ${REPLICATE_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        version: RVC_MODEL_VERSION,
+        input: {
+          audio_data_path: audioDataPath,
+          epochs: epochs,
+          model_name: model_id,
+          // Pass cleaning flag to the AI service
+          apply_cleaning: applyCleaning, 
+          // Webhook URL to update Supabase when training is complete/failed
+          webhook: `${Deno.env.get("SUPABASE_URL")}/functions/v1/webhook-ai-status`, 
+          webhook_events_filter: ["completed", "failed"],
+        },
+      }),
+    });
+
+    if (!replicateResponse.ok) {
+      const errorBody = await replicateResponse.json();
+      console.error("Replicate API Error:", errorBody);
+      throw new Error(`Failed to start AI training: ${replicateResponse.statusText}. Details: ${JSON.stringify(errorBody)}`);
+    }
+
+    const prediction = await replicateResponse.json();
+    
+    // 3. Update Supabase model status to 'processing'
+    const { error: updateError } = await supabaseAdmin
+      .from("voice_models")
+      .update({ 
+        status: "processing",
+        external_job_id: prediction.id 
+      })
+      .eq("id", model_id);
+
+    if (updateError) {
+      console.error("Supabase Update Error (processing):", updateError);
+      // We still return success here as the AI job was successfully triggered externally.
+    }
+
+    return new Response(JSON.stringify({ success: true, job_id: prediction.id }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 200,
+    });
+
+  } catch (error) {
+    console.error("AI Trigger Error:", error.message);
+    
+    // If an error occurred, mark the model as failed in the DB
+    if (modelId) {
+        const { error: failError } = await supabaseAdmin
+            .from("voice_models")
+            .update({ status: "failed", error_message: error.message }) // Record the error message
+            .eq("id", modelId);
+        
+        if (failError) {
+            console.error("Failed to mark model as failed:", failError);
+        }
+    }
+
+    return new Response(JSON.stringify({ error: error.message }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 500,
+    });
+  }
+});

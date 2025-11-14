@@ -1,0 +1,65 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    --background: 0 0% 100%; /* White base */
+    --foreground: 220 25% 8%; /* Dark text */
+
+    --card: 0 0% 98%; /* Very light card */
+    --card-foreground: 220 25% 8%;
+
+    --popover: 0 0% 98%;
+    --popover-foreground: 220 25% 8%;
+
+    --primary: 270 100% 12%; /* Darker Violet: #1a003f */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 330 80% 60%; /* Rose/Pink */
+    --secondary-foreground: 220 25% 8%;
+
+    --muted: 220 20% 90%; /* Light Gray */
+    --muted-foreground: 220 15% 40%;
+
+    --accent: 30 90% 50%; /* Orange */
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 20% 98%;
+
+    --border: 220 20% 85%;
+    --input: 220 20% 85%;
+    --ring: 270 100% 12%; /* Ring matches new darker primary */
+
+    --radius: 0.75rem;
+    
+    /* Updated Gradients for more saturation and contrast */
+    --gradient-primary: linear-gradient(135deg, hsl(270 100% 12%) 0%, hsl(270 80% 30%) 100%); /* Dark Violet to Rich Violet */
+    --gradient-accent: linear-gradient(135deg, hsl(30 90% 50%) 0%, hsl(10 90% 55%) 100%); /* Orange to Red-Orange */
+    --shadow-glow: 0 0 40px hsla(270, 100%, 12%, 0.6); /* Adjusted glow intensity and color */
+
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 220 25% 8%;
+    --sidebar-primary: 270 100% 12%; /* Updated sidebar primary */
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 20% 90%;
+    --sidebar-accent-foreground: 220 25% 8%;
+    --sidebar-border: 220 20% 85%;
+    --sidebar-ring: 270 100% 12%; /* Updated sidebar ring */
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
