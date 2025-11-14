@@ -44,8 +44,8 @@ const formSchema = z.object({
 type ModelFormValues = z.infer<typeof formSchema>;
 
 // Utility function to sanitize file names for storage paths
-const sanitizeFileName = (name: string) => {
-  const safeName = String(name || 'untitled');
+const sanitizeFileName = (name: string | undefined) => {
+  const safeName = String(name || 'untitled_file'); // Use 'untitled_file' as fallback
   const normalized = safeName.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   return normalized
     .replace(/[^a-zA-Z0-9.]/g, '_')
@@ -280,7 +280,7 @@ const CreateModel = () => {
           .from('audio-files')
           .upload(filePath, file, {
             cacheControl: '3600',
-            upsert: false
+            upsert: true // <-- Changed to true to allow overwriting if model name is reused
           })
           .then(res => {
             if (res.error) {
