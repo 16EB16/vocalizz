@@ -263,6 +263,12 @@ const CreateModel = () => {
       let uploadedCount = 0;
 
       const uploadPromises = files.map(file => {
+        // CRUCIAL CHECK: Ensure file name exists before sanitizing
+        if (!file.name) {
+            console.error("File object is missing a name property:", file);
+            throw new Error("Un des fichiers audio est invalide (nom manquant).");
+        }
+        
         const sanitizedFileName = sanitizeFileName(file.name);
         const filePath = `${storagePathPrefix}/${sanitizedFileName}`;
         
@@ -270,7 +276,7 @@ const CreateModel = () => {
           .from('audio-files')
           .upload(filePath, file, {
             cacheControl: '3600',
-            upsert: true // <-- Already set to true
+            upsert: true 
           })
           .then(res => {
             if (res.error) {
