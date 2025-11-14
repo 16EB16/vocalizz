@@ -293,21 +293,20 @@ const CreateModel = () => {
             upsert: false
           })
           .then(res => {
-            if (!res.error) {
-              uploadedCount++;
-              setUploadProgress(Math.floor((uploadedCount / totalFiles) * 100));
+            if (res.error) {
+                // Log the specific storage error
+                console.error(`Supabase Storage Upload Error for ${file.name}:`, res.error);
+                throw new Error(`Échec de l'upload du fichier ${file.name}: ${res.error.message}`);
             }
+            uploadedCount++;
+            setUploadProgress(Math.floor((uploadedCount / totalFiles) * 100));
             return res;
           });
       });
 
-      const uploadResults = await Promise.all(uploadPromises);
-      
-      const uploadErrors = uploadResults.filter(res => res.error);
-      if (uploadErrors.length > 0) {
-        uploadErrors.forEach(err => console.error("Supabase Upload Error:", err.error));
-        throw new Error(`Erreur lors de l'upload de ${uploadErrors.length} fichier(s). Veuillez réessayer.`);
-      }
+      // Use Promise.allSettled to ensure all uploads are attempted, but we rely on the .then() above to throw on error
+      // We use Promise.all here to fail fast if any upload fails.
+      await Promise.all(uploadPromises);
       
       setUploadProgress(100); // Upload complete
 

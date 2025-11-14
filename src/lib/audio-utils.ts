@@ -59,7 +59,7 @@ export const getAudioDuration = (file: File): Promise<number> => {
  * @returns Formatted string.
  */
 export const formatDurationString = (totalSeconds: number): string => {
-  if (totalSeconds === 0) return "0s";
+  if (totalSeconds === 0 || isNaN(totalSeconds)) return "0s";
   
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
@@ -80,10 +80,15 @@ export const formatDurationString = (totalSeconds: number): string => {
  * @returns Formatted string.
  */
 export const formatBytes = (bytes: number, decimals = 2): string => {
-  if (bytes === 0) return '0 Bytes';
+  if (bytes === 0 || isNaN(bytes) || bytes === null) return '0 Bytes';
   const k = 1024;
   const dm = decimals < 0 ? 0 : decimals;
   const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+  
   const i = Math.floor(Math.log(bytes) / Math.log(k));
+  
+  // Safety check for i
+  if (i < 0 || i >= sizes.length) return '0 Bytes';
+
   return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
 };

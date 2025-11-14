@@ -30,11 +30,13 @@ export const useStripePortal = (isPremium: boolean) => {
 
       if (error) {
         // Handle network/invocation errors from Supabase client
-        throw new Error(error.message);
+        console.error("Supabase Function Invocation Error:", error);
+        throw new Error(`Erreur de connexion au service de facturation: ${error.message}`);
       }
       
       // Handle application-level errors returned by the Edge Function (e.g., 401, 404, 500)
       if (data && data.error) {
+        console.error("Edge Function returned error:", data.error);
         throw new Error(data.error);
       }
 
