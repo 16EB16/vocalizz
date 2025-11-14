@@ -2,14 +2,16 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { Mic, Type, Play, Loader2, Upload, ThumbsUp, ThumbsDown, PlusCircle } from "lucide-react";
+import { Mic, Type, Play, Loader2, Upload, ThumbsUp, ThumbsDown, PlusCircle, Volume2 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"; // <-- FIX: Added Tooltip imports
 import { useVoiceModels } from "@/hooks/use-voice-models";
 import { useUserStatus } from "@/hooks/use-user-status";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useModelFeedback } from "@/hooks/use-model-feedback";
 import { useSearchParams, useNavigate } from "react-router-dom";
+import { cn } from "@/lib/utils";
 
 const Playground = () => {
   const { userId } = useUserStatus();
@@ -24,6 +26,7 @@ const Playground = () => {
   const [textInput, setTextInput] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [audioGenerated, setAudioGenerated] = useState(false); // State to show feedback buttons
+  const [audioUrl, setAudioUrl] = useState<string | null>(null); // Simulated audio URL
 
   const readyModels = models?.filter(m => m.status === 'completed') || [];
   const selectedModel = readyModels.find(m => m.id === selectedModelId);
@@ -50,11 +53,13 @@ const Playground = () => {
 
     setIsGenerating(true);
     setAudioGenerated(false);
+    setAudioUrl(null);
     
     // --- Simulation de l'appel API TTS ---
     setTimeout(() => {
       setIsGenerating(false);
       setAudioGenerated(true);
+      setAudioUrl("https://example.com/simulated-audio.mp3"); // Placeholder URL
       toast({ title: "Synthèse vocale terminée", description: `Le modèle "${selectedModel?.name}" a généré l'audio.` });
       // In a real app, you would play the audio file returned by the API here.
     }, 2000);
@@ -86,7 +91,11 @@ const Playground = () => {
         </CardHeader>
         <CardContent>
           <Select 
-            onValueChange={setSelectedModelId} 
+            onValueChange={(id) => {
+                setSelectedModelId(id);
+                setAudioGenerated(false); // Reset feedback when model changes
+                setAudioUrl(null);
+            }} 
             value={selectedModelId}
             disabled={isModelsLoading || readyModels.length === 0}
           >
@@ -158,31 +167,61 @@ const Playground = () => {
                 {isGenerating ? "Génération en cours..." : "Générer l'audio"}
               </Button>
               
-              {/* Placeholder for Audio Player */}
-              <div className="mt-4 p-4 border rounded-lg bg-muted/50 text-muted-foreground text-sm">
-                Lecteur audio (Résultat de la synthèse)
+              {/* Audio Player and Feedback */}
+              <div className={cn(
+                "mt-4 p-4 border rounded-lg bg-muted/50 text-muted-foreground text-sm transition-opacity duration-300",
+                audioUrl ? "opacity-100" : "opacity-0 h-0 p-0 border-none"
+              )}>
+                {audioUrl ? (
+                    <div className="space-y-4">
+                        <div className="flex items-center gap-3">
+                            <Volume2 className="w-5 h-5 text-primary" />
+                            <p className="font-medium text-foreground">Résultat de la synthèse</p>
+                        </div>
+                        {/* In a real app, replace this with a proper audio player component */}
+                        <audio controls src={audioUrl} className="w-full">
+                            Votre navigateur ne supporte pas l'élément audio.
+                        </audio>
+                    </div>
+                ) : (
+                    <p>Lecteur audio (Résultat de la synthèse)</p>
+                )}
               </div>
 
               {/* Feedback Section */}
               {audioGenerated && selectedModelId && (
                 <div className="flex items-center justify-center gap-4 pt-4 border-t mt-4">
                     <span className="text-sm text-muted-foreground">Qualité du rendu ?</span>
-                    <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        onClick={() => handleFeedback(5)}
-                        disabled={feedbackMutation.isPending}
-                    >
-                        <ThumbsUp className="w-5 h-5 text-green-500" />
-                    </Button>
-                    <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        onClick={() => handleFeedback(1)}
-                        disabled={feedbackMutation.isPending}
-                    >
-                        <ThumbsDown className="w-5 h-5 text-red-500" />
-                    </Button>
+                    <Tooltip delayDuration={100}>
+                        <TooltipTrigger asChild>
+                            <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                onClick={() => handleFeedback(5)}
+                                disabled={feedbackMutation.isPending}
+                            >
+                                <ThumbsUp className="w-5 h-5 text-green-500" />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                            J'aime (5/5)
+                        </TooltipContent>
+                    </Tooltip>
+                    <Tooltip delayDuration={100}>
+                        <TooltipTrigger asChild>
+                            <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                onClick={() => handleFeedback(1)}
+                                disabled={feedbackMutation.isPending}
+                            >
+                                <ThumbsDown className="w-5 h-5 text-red-500" />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                            Je n'aime pas (1/5)
+                        </TooltipContent>
+                    </Tooltip>
                 </div>
               )}
             </CardContent>

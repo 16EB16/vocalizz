@@ -10,7 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useUserStatus } from "@/hooks/use-user-status";
 import { useVoiceModels, VoiceModel } from "@/hooks/use-voice-models";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Download, Trash2, Clock, Crown, Zap, Loader2, AlertTriangle, PlayCircle } from "lucide-react";
+import { Plus, Download, Trash2, Clock, Crown, Zap, Loader2, AlertTriangle, PlayCircle, Sparkles } from "lucide-react";
 import BillingPortalButton from "@/components/BillingPortalButton";
 import { formatDurationString } from "@/lib/audio-utils";
 import ModelCardSkeleton from "@/components/ModelCardSkeleton";
@@ -106,7 +106,7 @@ const Dashboard = () => {
       toast({
         variant: "destructive",
         title: "Limite atteinte",
-        description: `Les utilisateurs gratuits sont limités à ${MAX_FREE_MODELS} modèles. Passez à Premium pour créer plus.`,
+        description: `Les utilisateurs gratuits sont limités à ${MAX_FREE_MODELS} modèles créés. Passez à Premium pour créer plus.`,
       });
       return;
     }
@@ -286,6 +286,15 @@ const Dashboard = () => {
                     <span>L'entraînement a échoué. Veuillez vérifier vos fichiers audio et réessayer.</span>
                 </div>
               )}
+              
+              {/* NEW: Cleaning Applied Status */}
+              {model.cleaning_applied && (
+                <div className="flex items-center gap-2 text-sm text-yellow-600">
+                    <Sparkles className="w-4 h-4" />
+                    <span>Nettoyage IA Premium appliqué</span>
+                </div>
+              )}
+
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Clock className="w-4 h-4" />
                 <span>
