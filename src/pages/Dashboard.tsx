@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -19,11 +19,41 @@ import { cn } from "@/lib/utils";
 
 const MAX_FREE_MODELS = 5;
 
+// Utility function to format seconds into H:M:S
+const formatTimeElapsed = (totalSeconds: number): string => {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = Math.floor(totalSeconds % 60);
+
+  const pad = (num: number) => num.toString().padStart(2, '0');
+
+  return `${pad(hours)}h ${pad(minutes)}m ${pad(seconds)}s`;
+};
+
+// Function to estimate total training time based on POCH (in minutes)
+const estimateTrainingDurationMinutes = (poch: number): number => {
+    // Standard (500 POCH): ~15 minutes
+    // Premium (2000 POCH): ~60 minutes
+    if (poch === 2000) return 60;
+    if (poch === 500) return 15;
+    return 30; // Default fallback
+};
+
+
 const Dashboard = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { isPremium, userId, isLoading: isUserStatusLoading, is_in_training } = useUserStatus();
+  const [currentTime, setCurrentTime] = useState(Date.now());
+
+  // Update current time every second for the elapsed timer
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   // 1. Data Fetching using TanStack Query
   const { data: models, isLoading: isModelsLoading, isError } = useVoiceModels(userId);
@@ -247,147 +277,166 @@ const Dashboard = () => {
 
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {modelList.map((model) => (
-          <Card 
-            key={model.id} 
-            className={`bg-card border-border transition-all ${
-              model.is_premium_model 
-                ? "border-2 border-yellow-500 shadow-lg shadow-yellow-300/30 hover:border-yellow-400" 
-                : "hover:border-primary/50"
-            } ${
-                (model.status === 'processing' || model.status === 'preprocessing') ? "animate-pulse-slow border-primary/50" : ""
-            }`}
-          >
-            <CardHeader>
-              <div className="flex justify-between items-start mb-2">
-                <CardTitle className="text-xl flex items-center gap-2">
-                  {model.name}
-                  {model.is_premium_model && (
-                    <Tooltip delayDuration={100}>
-                      <TooltipTrigger>
-                        <Crown className="w-5 h-5 text-yellow-500 fill-yellow-500/20" />
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        Modèle Haute Fidélité (Premium)
-                      </TooltipContent>
-                    </Tooltip>
-                  )}
-                </CardTitle>
-                {getStatusBadge(model.status)}
-              </div>
-              <CardDescription className="flex items-center justify-between">
-                <span>{model.poch_value} POCH</span>
-                <span className="text-xs text-muted-foreground">
-                  {model.is_premium_model ? "Haute Qualité" : "Standard"}
-                </span>
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {(model.status === "processing" || model.status === "preprocessing") && model.progress !== null && (
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span>Progression</span>
-                    <span>{model.progress}%</span>
+        {modelList.map((model) => {
+            const isProcessing = model.status === "processing" || model.status === "preprocessing";
+            
+            let timeElapsed = 0;
+            let estimatedDurationMinutes = 0;
+            let estimatedDurationString = "";
+
+            if (isProcessing) {
+                const createdAt = new Date(model.created_at).getTime();
+                timeElapsed = Math.floor((currentTime - createdAt) / 1000);
+                estimatedDurationMinutes = estimateTrainingDurationMinutes(model.poch_value);
+                estimatedDurationString = `${estimatedDurationMinutes} min`;
+            }
+
+            return (
+              <Card 
+                key={model.id} 
+                className={`bg-card border-border transition-all ${
+                  model.is_premium_model 
+                    ? "border-2 border-yellow-500 shadow-lg shadow-yellow-300/30 hover:border-yellow-400" 
+                    : "hover:border-primary/50"
+                } ${
+                    isProcessing ? "animate-pulse-slow border-primary/50" : ""
+                }`}
+              >
+                <CardHeader>
+                  <div className="flex justify-between items-start mb-2">
+                    <CardTitle className="text-xl flex items-center gap-2">
+                      {model.name}
+                      {model.is_premium_model && (
+                        <Tooltip delayDuration={100}>
+                          <TooltipTrigger>
+                            <Crown className="w-5 h-5 text-yellow-500 fill-yellow-500/20" />
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            Modèle Haute Fidélité (Premium)
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
+                    </CardTitle>
+                    {getStatusBadge(model.status)}
                   </div>
-                  <Progress 
-                    value={model.progress} 
-                    className="h-2" 
-                    indicatorClassName={model.is_premium_model ? "bg-yellow-500" : "bg-primary"}
-                  />
-                </div>
-              )}
-              {model.status === "failed" && (
-                <div className="p-3 bg-destructive/10 border border-destructive rounded-lg text-sm text-destructive flex items-center gap-2">
-                    <AlertTriangle className="w-4 h-4 shrink-0" />
-                    <span>
-                        L'entraînement a échoué. 
-                        {model.error_message ? ` Détails: ${model.error_message.substring(0, 100)}...` : " Veuillez vérifier vos fichiers audio et réessayer."}
+                  <CardDescription className="flex items-center justify-between">
+                    <span>{model.poch_value} POCH</span>
+                    <span className="text-xs text-muted-foreground">
+                      {model.is_premium_model ? "Haute Qualité" : "Standard"}
                     </span>
-                </div>
-              )}
-              
-              {/* NEW: Source Quality Score */}
-              {model.score_qualite_source !== null && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Mic className="w-4 h-4" />
-                    <span>Qualité Source: 
-                        <span className={cn("font-semibold ml-1", getQualityScoreColor(model.score_qualite_source))}>
-                            {model.score_qualite_source}/100
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {isProcessing && model.progress !== null && (
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span>Progression</span>
+                        <span>{model.progress}%</span>
+                      </div>
+                      <Progress 
+                        value={model.progress} 
+                        className="h-2" 
+                        indicatorClassName={model.is_premium_model ? "bg-yellow-500" : "bg-primary"}
+                      />
+                      <div className="flex justify-between text-xs text-muted-foreground pt-1">
+                        <span>Temps écoulé: {formatTimeElapsed(timeElapsed)}</span>
+                        <span>Est. totale: {estimatedDurationString}</span>
+                      </div>
+                    </div>
+                  )}
+                  {model.status === "failed" && (
+                    <div className="p-3 bg-destructive/10 border border-destructive rounded-lg text-sm text-destructive flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 shrink-0" />
+                        <span>
+                            L'entraînement a échoué. 
+                            {model.error_message ? ` Détails: ${model.error_message.substring(0, 100)}...` : " Veuillez vérifier vos fichiers audio et réessayer."}
                         </span>
+                    </div>
+                  )}
+                  
+                  {/* Source Quality Score */}
+                  {model.score_qualite_source !== null && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Mic className="w-4 h-4" />
+                        <span>Qualité Source: 
+                            <span className={cn("font-semibold ml-1", getQualityScoreColor(model.score_qualite_source))}>
+                                {model.score_qualite_source}/100
+                            </span>
+                        </span>
+                    </div>
+                  )}
+
+                  {/* Cleaning Applied Status */}
+                  {model.cleaning_applied && (
+                    <div className="flex items-center gap-2 text-sm text-yellow-600">
+                        <Sparkles className="w-4 h-4" />
+                        <span>Nettoyage IA Premium appliqué</span>
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Clock className="w-4 h-4" />
+                    <span>
+                      Créé le {new Date(model.created_at).toLocaleDateString("fr-FR")}
                     </span>
-                </div>
-              )}
-
-              {/* NEW: Cleaning Applied Status */}
-              {model.cleaning_applied && (
-                <div className="flex items-center gap-2 text-sm text-yellow-600">
-                    <Sparkles className="w-4 h-4" />
-                    <span>Nettoyage IA Premium appliqué</span>
-                </div>
-              )}
-
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Clock className="w-4 h-4" />
-                <span>
-                  Créé le {new Date(model.created_at).toLocaleDateString("fr-FR")}
-                </span>
-              </div>
-              <div className="text-sm text-muted-foreground">
-                <span>{model.file_count} fichier(s) audio</span>
-                <span className="ml-2">
-                  ({model.audio_duration_seconds !== null ? formatDurationString(model.audio_duration_seconds) : "Durée inconnue"})
-                </span>
-              </div>
-              <div className="flex gap-2 pt-2">
-                {model.status === "completed" && (
-                  <Button 
-                    variant="default" 
-                    size="sm" 
-                    className="flex-1 gap-2 bg-primary hover:bg-primary/90"
-                    onClick={() => handleDownloadModel(model)}
-                  >
-                    <Download className="w-4 h-4" />
-                    Télécharger le modèle
-                  </Button>
-                )}
-                
-                <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className={cn(model.status !== "completed" && "flex-1")}
-                            disabled={deleteModelMutation.isPending}
-                        >
-                            {deleteModelMutation.isPending ? (
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                                <Trash2 className="w-4 h-4" />
-                            )}
-                        </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                        <AlertDialogHeader>
-                            <AlertDialogTitle>Êtes-vous absolument sûr ?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                                Cette action est irréversible. Cela supprimera définitivement le modèle vocal <span className="font-semibold text-foreground">"{model.name}"</span> de nos serveurs.
-                            </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                            <AlertDialogCancel>Annuler</AlertDialogCancel>
-                            <AlertDialogAction 
-                                onClick={() => handleDeleteModel(model)} // Pass the whole model object
-                                className="bg-destructive hover:bg-destructive/90"
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    <span>{model.file_count} fichier(s) audio</span>
+                    <span className="ml-2">
+                      ({model.audio_duration_seconds !== null ? formatDurationString(model.audio_duration_seconds) : "Durée inconnue"})
+                    </span>
+                  </div>
+                  <div className="flex gap-2 pt-2">
+                    {model.status === "completed" && (
+                      <Button 
+                        variant="default" 
+                        size="sm" 
+                        className="flex-1 gap-2 bg-primary hover:bg-primary/90"
+                        onClick={() => handleDownloadModel(model)}
+                      >
+                        <Download className="w-4 h-4" />
+                        Télécharger le modèle
+                      </Button>
+                    )}
+                    
+                    <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className={cn(model.status !== "completed" && "flex-1")}
+                                disabled={deleteModelMutation.isPending}
                             >
-                                Oui, Supprimer
-                            </AlertDialogAction>
-                        </AlertDialogFooter>
-                    </AlertDialogContent>
-                </AlertDialog>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+                                {deleteModelMutation.isPending ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                    <Trash2 className="w-4 h-4" />
+                                )}
+                            </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                            <AlertDialogHeader>
+                                <AlertDialogTitle>Êtes-vous absolument sûr ?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                    Cette action est irréversible. Cela supprimera définitivement le modèle vocal <span className="font-semibold text-foreground">"{model.name}"</span> de nos serveurs.
+                                </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                                <AlertDialogCancel>Annuler</AlertDialogCancel>
+                                <AlertDialogAction 
+                                    onClick={() => handleDeleteModel(model)} // Pass the whole model object
+                                    className="bg-destructive hover:bg-destructive/90"
+                                >
+                                    Oui, Supprimer
+                                </AlertDialogAction>
+                            </AlertDialogFooter>
+                        </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+        })}
       </div>
     );
   };

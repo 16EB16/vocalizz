@@ -151,6 +151,7 @@ const CreateModel = () => {
     if (audioFiles.length === 0) return;
 
     setIsCalculatingDuration(true);
+    console.log(`[CreateModel] Démarrage du calcul de la durée pour ${audioFiles.length} nouveaux fichiers.`);
     
     try {
         // Calculate duration for each new file
@@ -180,6 +181,7 @@ const CreateModel = () => {
         }
 
         setFiles(updatedFiles);
+        console.log(`[CreateModel] Calcul de la durée terminé. Durée totale actuelle: ${formatDurationString(updatedFiles.reduce((acc, f) => acc + f.duration, 0))}`);
     } catch (error) {
         console.error("Error processing audio files:", error);
         toast({
@@ -241,11 +243,13 @@ const CreateModel = () => {
 
     setIsSubmitting(true);
     setUploadProgress(0);
+    console.log(`[CreateModel] Démarrage du processus de création de modèle: ${values.modelName} (${pochValue} POCH).`);
 
     let modelId: string | undefined;
 
     try {
       // 1. Set user status to 'is_in_training'
+      console.log("[CreateModel] Étape 1/5: Mise à jour du statut utilisateur (is_in_training = true).");
       const { error: profileUpdateError } = await supabase
         .from('profiles')
         .update({ is_in_training: true })
@@ -253,9 +257,7 @@ const CreateModel = () => {
 
       if (profileUpdateError) throw new Error("Erreur lors de la mise à jour du statut d'entraînement.");
       
-      // Invalidate profile query to update UI immediately
       queryClient.invalidateQueries({ queryKey: ["userProfile"] });
-
 
       // 2. Name check is already done in useEffect, but we re-check quickly
       if (nameError) throw new Error(nameError);
@@ -265,6 +267,7 @@ const CreateModel = () => {
       const storagePathPrefix = `${userId}/${sanitizedModelName}`;
 
       // 3. Upload files to Supabase Storage
+      console.log(`[CreateModel] Étape 2/5: Démarrage de l'upload de ${files.length} fichiers vers le chemin: ${storagePathPrefix}`);
       const totalFiles = files.length;
       let uploadedCount = 0;
 
@@ -292,16 +295,18 @@ const CreateModel = () => {
             }
             uploadedCount++;
             setUploadProgress(Math.floor((uploadedCount / totalFiles) * 100));
+            console.log(`[CreateModel] Fichier uploadé: ${file.name} (${uploadedCount}/${totalFiles})`);
             return res;
           });
       });
 
-      // Use Promise.all here to fail fast if any upload fails.
       await Promise.all(uploadPromises);
       
       setUploadProgress(100); // Upload complete
+      console.log("[CreateModel] Étape 2/5: Upload terminé.");
 
       // 4. Create the voice model entry (Only after successful upload)
+      console.log("[CreateModel] Étape 3/5: Création de l'entrée du modèle en base de données.");
       const { data: modelData, error: modelError } = await supabase
         .from("voice_models")
         .insert({
@@ -322,8 +327,10 @@ const CreateModel = () => {
 
       if (modelError || !modelData) throw modelError || new Error("Erreur lors de la création du modèle en base de données.");
       modelId = modelData.id; // Store ID for potential cleanup
+      console.log(`[CreateModel] Entrée DB créée. Model ID: ${modelId}`);
 
       // 5. Trigger External AI API (Crucial Step)
+      console.log("[CreateModel] Étape 4/5: Appel de la fonction Edge 'trigger-ai-training'.");
       const { data: apiResponse, error: apiError } = await supabase.functions.invoke('trigger-ai-training', {
         body: {
           model_id: modelId,
@@ -356,11 +363,10 @@ const CreateModel = () => {
         }
         // --- END RADICAL SOLUTION ---
 
-        // If AI trigger fails, update DB status to failed and record error message
-        // NOTE: The Edge Function already does this, but we ensure the user status is reset and the error is thrown.
-        
         throw new Error(`Erreur de lancement IA: ${detailedErrorMessage}`);
       }
+      console.log(`[CreateModel] Étape 5/5: Entraînement IA lancé avec succès. Job ID externe: ${apiResponse?.job_id}`);
+
 
       toast({
         title: "Modèle créé !",
@@ -369,7 +375,7 @@ const CreateModel = () => {
 
       navigate("/dashboard");
     } catch (error: any) {
-      console.error("Creation error:", error);
+      console.error("[CreateModel] Erreur critique lors de la création:", error);
       
       // Extract the error message to display
       const displayMessage = error.message || "Une erreur est survenue lors de la création du modèle.";
@@ -382,6 +388,7 @@ const CreateModel = () => {
       
       // IMPORTANT: If any step fails, reset is_in_training flag
       if (userId) {
+        console.log("[CreateModel] Réinitialisation du statut utilisateur (is_in_training = false) suite à l'échec.");
         await supabase
           .from('profiles')
           .update({ is_in_training: false })
