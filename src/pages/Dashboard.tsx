@@ -183,9 +183,7 @@ const Dashboard = () => {
   };
   // --- END REALISTIC DOWNLOAD FUNCTION ---
 
-  const handleTestModel = (modelId: string) => {
-    navigate(`/playground?modelId=${modelId}`);
-  };
+  // Removed handleTestModel function
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -325,26 +323,15 @@ const Dashboard = () => {
               </div>
               <div className="flex gap-2 pt-2">
                 {model.status === "completed" && (
-                  <>
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      className="flex-1 gap-2"
-                      onClick={() => handleTestModel(model.id)}
-                    >
-                      <PlayCircle className="w-4 h-4" />
-                      Tester
-                    </Button>
-                    <Button 
-                      variant="default" 
-                      size="sm" 
-                      className="flex-1 gap-2 bg-primary hover:bg-primary/90"
-                      onClick={() => handleDownloadModel(model)}
-                    >
-                      <Download className="w-4 h-4" />
-                      Télécharger
-                    </Button>
-                  </>
+                  <Button 
+                    variant="default" 
+                    size="sm" 
+                    className="flex-1 gap-2 bg-primary hover:bg-primary/90"
+                    onClick={() => handleDownloadModel(model)}
+                  >
+                    <Download className="w-4 h-4" />
+                    Télécharger le modèle
+                  </Button>
                 )}
                 
                 <AlertDialog>
