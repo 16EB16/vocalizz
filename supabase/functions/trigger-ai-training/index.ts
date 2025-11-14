@@ -78,7 +78,8 @@ serve(async (req) => {
     // 3. Check AI Service Key
     if (!REPLICATE_API_KEY) {
         console.error("REPLICATE_API_KEY is not set.");
-        throw new Error("Configuration error: AI service key missing.");
+        // Throw a specific error that will be caught below and logged in the DB
+        throw new Error("Configuration error: La clé API du service IA (Replicate) est manquante.");
     }
 
     // Determine if cleaning should be applied
@@ -109,9 +110,19 @@ serve(async (req) => {
     });
 
     if (!replicateResponse.ok) {
-      const errorBody = await replicateResponse.json();
-      console.error("Replicate API Error:", replicateResponse.status, errorBody);
-      throw new Error(`Failed to start AI training (Status: ${replicateResponse.status}). Details: ${JSON.stringify(errorBody)}`);
+      // CRITICAL IMPROVEMENT: Read the error body from Replicate
+      let errorDetails = `Status ${replicateResponse.status}`;
+      try {
+        const errorBody = await replicateResponse.json();
+        errorDetails += `: ${JSON.stringify(errorBody)}`;
+      } catch (e) {
+        // If JSON parsing fails, use text
+        errorDetails += `: ${await replicateResponse.text()}`;
+      }
+      
+      console.error("Replicate API Error:", errorDetails);
+      // Throw a detailed error message that will be recorded in the DB
+      throw new Error(`Échec de l'appel à l'API IA. Détails: ${errorDetails}`);
     }
 
     const prediction = await replicateResponse.json();
@@ -159,6 +170,7 @@ serve(async (req) => {
             .eq('id', userId);
     }
 
+    // Return a 500 response with the error message for the frontend to display
     return new Response(JSON.stringify({ error: error.message }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 500,
