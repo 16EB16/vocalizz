@@ -9,7 +9,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { useUserStatus } from "@/hooks/use-user-status";
-import { Upload, X, Crown, Loader2, HardDrive, Clock, CheckCircle, AlertTriangle, Sparkles } from "lucide-react";
+import { Upload, X, Crown, Loader2, HardDrive, Clock, CheckCircle, AlertTriangle, Sparkles, Cpu } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -20,7 +20,9 @@ import { Progress } from "@/components/ui/progress";
 import AudioFileList from "@/components/AudioFileList";
 import AudioAnalysisCard from "@/components/AudioAnalysisCard";
 import { useQueryClient } from "@tanstack/react-query";
-import { useAudioAnalysis } from "@/hooks/use-audio-analysis"; // Import the new hook
+import { useAudioAnalysis } from "@/hooks/use-audio-analysis";
+import { useCancelModel } from "@/hooks/use-cancel-model"; // Import the cancel hook
+import { useVoiceModels } from "@/hooks/use-voice-models"; // Import useVoiceModels to find the processing model
 
 // Constants for POCH values
 const POCH_STANDARD = 500;
@@ -48,6 +50,8 @@ const CreateModel = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { isPremium, userId, isLoading: isStatusLoading, is_in_training } = useUserStatus();
+  const { data: models } = useVoiceModels(userId); // Fetch models to find the one in progress
+  
   const [files, setFiles] = useState<AudioFile[]>([]);
   const [totalSize, setTotalSize] = useState(0);
   const [totalDuration, setTotalDuration] = useState(0);
@@ -58,6 +62,8 @@ const CreateModel = () => {
   const [isNameChecking, setIsNameChecking] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
   const [cleaningOption, setCleaningOption] = useState<'none' | 'premium'>('none');
+
+  const { mutate: cancelModel, isPending: isCancelling } = useCancelModel();
 
   const form = useForm<ModelFormValues>({
     resolver: zodResolver(formSchema),
@@ -78,6 +84,10 @@ const CreateModel = () => {
   const isTrainingInProgress = is_in_training; 
   
   const canSubmit = files.length > 0 && !isOverSizeLimit && isMinDurationMet && !isSubmitting && !isCalculatingDuration && !nameError && modelNameWatch.length >= 3 && !isTrainingInProgress;
+
+  // Identify the model currently being processed
+  const processingModel = models?.find(m => m.status === 'processing' || m.status === 'preprocessing');
+
 
   // Update total size and duration whenever files change
   useEffect(() => {
@@ -426,7 +436,7 @@ const CreateModel = () => {
             <Card className="bg-card border-border border-primary/50">
                 <CardHeader>
                     <CardTitle className="flex items-center gap-2 text-primary">
-                        <Loader2 className="w-5 h-5 animate-spin" />
+                        <Cpu className="w-5 h-5 animate-pulse" />
                         Entraînement en cours
                     </CardTitle>
                     <CardDescription>
@@ -435,12 +445,24 @@ const CreateModel = () => {
                 </CardHeader>
                 <CardContent>
                     <p className="mb-4 text-muted-foreground">
-                        Pour éviter de saturer les ressources GPU, vous ne pouvez entraîner qu'un seul modèle à la fois.
-                        Veuillez attendre que votre modèle actuel soit terminé.
+                        Le modèle <span className="font-semibold text-foreground">{processingModel?.name || "en cours"}</span> est actuellement en cours d'entraînement. Vous ne pouvez lancer qu'un seul modèle à la fois.
                     </p>
-                    <Button onClick={() => navigate("/dashboard")}>
-                        Retour au Studio
-                    </Button>
+                    <div className="flex gap-3">
+                        <Button onClick={() => navigate("/dashboard")}>
+                            Retour au Studio
+                        </Button>
+                        {processingModel && (
+                            <Button 
+                                variant="destructive" 
+                                onClick={() => userId && cancelModel({ modelId: processingModel.id, userId, isManualCancel: true })}
+                                disabled={isCancelling}
+                                className="gap-2"
+                            >
+                                {isCancelling ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
+                                Annuler l'entraînement
+                            </Button>
+                        )}
+                    </div>
                 </CardContent>
             </Card>
         </div>
