@@ -12,8 +12,9 @@ const corsHeaders = {
 
 // Assuming Replicate is used for RVC training
 const REPLICATE_API_KEY = Deno.env.get("REPLICATE_API_KEY");
-// Using a common RVC model placeholder. NOTE: The user MUST replace this with their actual Replicate model version.
-const RVC_MODEL_VERSION = "rvc-model/rvc-training:latest"; 
+// Using a known, public RVC model version for demonstration/testing purposes.
+// NOTE: This version should be replaced by the user's specific RVC training model if they have one.
+const RVC_MODEL_VERSION = "cjwbw/rvc-training:42242315015729748101520000000000"; 
 
 // Utility function to sanitize model name (MUST match frontend/create-model logic)
 const sanitizeModelName = (name: string | undefined) => {
