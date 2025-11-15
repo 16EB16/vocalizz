@@ -10,14 +10,20 @@ import { useToast } from "@/hooks/use-toast";
 import { useUserStatus } from "@/hooks/use-user-status";
 import { useVoiceModels, VoiceModel } from "@/hooks/use-voice-models";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Download, Trash2, Clock, Crown, Zap, Loader2, AlertTriangle, PlayCircle, Sparkles, Cpu, Mic } from "lucide-react";
+import { Plus, Download, Trash2, Clock, Crown, Zap, Loader2, AlertTriangle, Cpu, Mic, Ban, Sparkles } from "lucide-react";
 import BillingPortalButton from "@/components/BillingPortalButton";
 import { formatDurationString } from "@/lib/audio-utils";
 import ModelCardSkeleton from "@/components/ModelCardSkeleton";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
+import { useCancelStuckModel } from "@/hooks/use-cancel-stuck-model"; // Import the new hook
 
 const MAX_FREE_MODELS = 5;
+
+// --- TIMEOUT CONSTANTS (in seconds) ---
+const TIMEOUT_STANDARD_SECONDS = 30 * 60; // 30 minutes
+const TIMEOUT_PREMIUM_SECONDS = 2 * 3600; // 2 hours (120 minutes)
+// ---------------------------------------
 
 // Utility function to format seconds into H:M:S
 const formatTimeElapsed = (totalSeconds: number): string => {
@@ -47,6 +53,8 @@ const Dashboard = () => {
   const queryClient = useQueryClient();
   const { isPremium, userId, isLoading: isUserStatusLoading, is_in_training } = useUserStatus();
   const [currentTime, setCurrentTime] = useState(Date.now());
+  
+  const { mutate: cancelStuckModel, isPending: isCancelling } = useCancelStuckModel(); // Use the new hook
 
   // Update current time every second for the elapsed timer
   useEffect(() => {
@@ -285,6 +293,8 @@ const Dashboard = () => {
             let estimatedDurationMinutes = 0;
             let estimatedDurationString = "";
             let timeRemainingString = "";
+            let isStuck = false;
+            let timeoutLimitSeconds = 0;
 
             if (isProcessing) {
                 const createdAt = new Date(model.created_at).getTime();
@@ -296,6 +306,11 @@ const Dashboard = () => {
                 
                 estimatedDurationString = `${estimatedDurationMinutes} min`;
                 timeRemainingString = formatTimeElapsed(timeRemainingSeconds);
+                
+                // --- NEW TIMEOUT LOGIC ---
+                timeoutLimitSeconds = model.poch_value === 2000 ? TIMEOUT_PREMIUM_SECONDS : TIMEOUT_STANDARD_SECONDS;
+                isStuck = timeElapsed > timeoutLimitSeconds;
+                // --- END NEW TIMEOUT LOGIC ---
             }
 
             return (
@@ -334,7 +349,7 @@ const Dashboard = () => {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {isProcessing && model.progress !== null && (
+                  {isProcessing && (
                     <div className="space-y-2">
                       <div className="flex justify-between text-sm">
                         <span>Progression</span>
@@ -347,9 +362,26 @@ const Dashboard = () => {
                       />
                       <div className="flex justify-between text-xs text-muted-foreground pt-1">
                         <span>Temps écoulé: {formatTimeElapsed(timeElapsed)}</span>
-                        {/* NEW: Display Time Remaining */}
                         <span>Est. restante: {timeRemainingString}</span>
                       </div>
+                      
+                      {/* NEW: Stuck Model Warning */}
+                      {isStuck && (
+                        <div className="p-2 bg-destructive/10 border border-destructive rounded-lg text-sm text-destructive flex items-center justify-between gap-2 mt-3">
+                            <div className="flex items-center gap-2">
+                                <AlertTriangle className="w-4 h-4 shrink-0" />
+                                <span>Bloqué ? Temps max ({formatTimeElapsed(timeoutLimitSeconds)}) dépassé.</span>
+                            </div>
+                            <Button 
+                                variant="destructive" 
+                                size="sm" 
+                                onClick={() => userId && cancelStuckModel({ modelId: model.id, userId })}
+                                disabled={isCancelling}
+                            >
+                                {isCancelling ? <Loader2 className="w-4 h-4 animate-spin" /> : <Ban className="w-4 h-4" />}
+                            </Button>
+                        </div>
+                      )}
                     </div>
                   )}
                   {model.status === "failed" && (
