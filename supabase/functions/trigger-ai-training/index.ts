@@ -15,6 +15,55 @@ const REPLICATE_API_KEY = Deno.env.get("REPLICATE_API_KEY");
 // Using a common RVC model placeholder. NOTE: The user MUST replace this with their actual Replicate model version.
 const RVC_MODEL_VERSION = "rvc-model/rvc-training:latest"; 
 
+// Utility function to sanitize model name (MUST match frontend/create-model logic)
+const sanitizeModelName = (name: string | undefined) => {
+    const safeName = String(name || 'untitled_file');
+    const normalized = safeName.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    return normalized
+      .replace(/[^a-zA-Z0-9.]/g, '_')
+      .replace(/_{2,}/g, '_')
+      .toLowerCase();
+};
+
+// Function to delete source files from storage using the Admin client
+async function deleteSourceFiles(supabaseAdmin, userId, modelName) {
+    const sanitizedModelName = sanitizeModelName(modelName);
+    const storagePathPrefix = `${userId}/${sanitizedModelName}/`;
+    const bucketName = 'audio-files';
+
+    console.log(`[AI Trigger Cleanup] Attempting to delete files at: ${storagePathPrefix}`);
+
+    try {
+        const { data: listData, error: listError } = await supabaseAdmin.storage
+            .from(bucketName)
+            .list(storagePathPrefix, { limit: 100, offset: 0 });
+
+        if (listError) {
+            console.error("Cleanup Error: Failed to list files:", listError);
+            return;
+        }
+
+        const filesToDelete = listData
+            .filter(file => file.name !== '.emptyFolderPlaceholder')
+            .map(file => `${storagePathPrefix}${file.name}`);
+
+        if (filesToDelete.length > 0) {
+            const { error: deleteError } = await supabaseAdmin.storage
+                .from(bucketName)
+                .remove(filesToDelete);
+
+            if (deleteError) {
+                console.error("Cleanup Error: Failed to delete files:", deleteError);
+            } else {
+                console.log(`Cleanup Success: Deleted ${filesToDelete.length} source files.`);
+            }
+        }
+    } catch (e) {
+        console.error("Cleanup Error: Exception during file deletion:", e.message);
+    }
+}
+
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -22,6 +71,7 @@ serve(async (req) => {
 
   let modelId: string | undefined;
   let userId: string | undefined;
+  let modelName: string | undefined; // Need to capture model name for cleanup
   
   // Initialize Supabase Admin client (used for server-side updates)
   const supabaseAdmin = createClient(
@@ -64,7 +114,21 @@ serve(async (req) => {
     const { model_id, user_id: body_user_id, storage_path, epochs, cleaning_option } = body;
     modelId = model_id; // Store model_id for potential error handling
 
-    console.log(`[AI Trigger] Received request for model ${modelId} by user ${userId}.`);
+    // Fetch model name from DB using model_id (needed for cleanup if Replicate call fails)
+    const { data: modelData, error: fetchModelError } = await supabaseAdmin
+        .from("voice_models")
+        .select("name")
+        .eq("id", modelId)
+        .single();
+
+    if (fetchModelError || !modelData) {
+        console.error("Error fetching model name for cleanup:", fetchModelError);
+        // We can't proceed without the model name for cleanup, but we still try to reset user status later.
+    } else {
+        modelName = modelData.name;
+    }
+
+    console.log(`[AI Trigger] Received request for model ${modelId} by user ${userId}. Model Name: ${modelName}`);
 
     // Security check: Ensure the user ID in the body matches the authenticated user ID
     if (body_user_id !== userId) {
@@ -86,7 +150,6 @@ serve(async (req) => {
     // 3. Check AI Service Key
     if (!REPLICATE_API_KEY) {
         console.error("CRITICAL ERROR: REPLICATE_API_KEY is not set.");
-        // Throw a specific error that will be caught below and logged in the DB
         throw new Error("Configuration error: La clé API du service IA (Replicate) est manquante. Veuillez la configurer.");
     }
 
@@ -179,6 +242,11 @@ serve(async (req) => {
             .from('profiles')
             .update({ is_in_training: false })
             .eq('id', userId);
+            
+        // CRITICAL CLEANUP: If we have the model name, delete the source files
+        if (modelName) {
+            await deleteSourceFiles(supabaseAdmin, userId, modelName);
+        }
     }
 
     // Return a 500 response with the error message for the frontend to display
