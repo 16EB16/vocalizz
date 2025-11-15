@@ -16,7 +16,8 @@ import { formatDurationString } from "@/lib/audio-utils";
 import ModelCardSkeleton from "@/components/ModelCardSkeleton";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
-import { useCancelModel } from "@/hooks/use-cancel-model"; // Use the renamed hook
+import { useCancelModel } from "@/hooks/use-cancel-model";
+import { estimateTrainingDurationMinutes } from "@/lib/model-utils"; // Import utility
 
 const MAX_FREE_MODELS = 5;
 
@@ -35,15 +36,6 @@ const formatTimeElapsed = (totalSeconds: number): string => {
   const pad = (num: number) => num.toString().padStart(2, '0');
 
   return `${pad(hours)}h ${pad(minutes)}m ${pad(seconds)}s`;
-};
-
-// Function to estimate total training time based on POCH (in minutes)
-const estimateTrainingDurationMinutes = (poch: number): number => {
-    // Standard (500 POCH): ~15 minutes
-    // Premium (2000 POCH): ~60 minutes
-    if (poch === 2000) return 60;
-    if (poch === 500) return 15;
-    return 30; // Default fallback
 };
 
 
@@ -455,16 +447,36 @@ const Dashboard = () => {
                     )}
                     
                     {isProcessing && (
-                        <Button 
-                            variant="outline" 
-                            size="sm" 
-                            className="flex-1 gap-2 text-destructive border-destructive hover:bg-destructive/10"
-                            onClick={() => handleManualCancel(model.id)}
-                            disabled={isCancelling}
-                        >
-                            {isCancelling ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
-                            Annuler
-                        </Button>
+                        <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                                <Button 
+                                    variant="outline" 
+                                    size="sm" 
+                                    className="flex-1 gap-2 text-destructive border-destructive hover:bg-destructive/10"
+                                    disabled={isCancelling}
+                                >
+                                    {isCancelling ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
+                                    Annuler
+                                </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                                <AlertDialogHeader>
+                                    <AlertDialogTitle>Annuler l'entraînement ?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                        Êtes-vous sûr de vouloir annuler l'entraînement du modèle <span className="font-semibold text-foreground">"{model.name}"</span> ? Cette action est irréversible et le modèle sera marqué comme échoué.
+                                    </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                    <AlertDialogCancel>Non, continuer</AlertDialogCancel>
+                                    <AlertDialogAction 
+                                        onClick={() => handleManualCancel(model.id)}
+                                        className="bg-destructive hover:bg-destructive/90"
+                                    >
+                                        Oui, Annuler
+                                    </AlertDialogAction>
+                                </AlertDialogFooter>
+                            </AlertDialogContent>
+                        </AlertDialog>
                     )}
                     
                     <AlertDialog>
