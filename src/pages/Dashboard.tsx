@@ -10,13 +10,13 @@ import { useToast } from "@/hooks/use-toast";
 import { useUserStatus } from "@/hooks/use-user-status";
 import { useVoiceModels, VoiceModel } from "@/hooks/use-voice-models";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Download, Trash2, Clock, Crown, Zap, Loader2, AlertTriangle, Cpu, Mic, Ban, Sparkles } from "lucide-react";
+import { Plus, Download, Trash2, Clock, Crown, Zap, Loader2, AlertTriangle, Cpu, Mic, Ban, Sparkles, X } from "lucide-react";
 import BillingPortalButton from "@/components/BillingPortalButton";
 import { formatDurationString } from "@/lib/audio-utils";
 import ModelCardSkeleton from "@/components/ModelCardSkeleton";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
-import { useCancelStuckModel } from "@/hooks/use-cancel-stuck-model"; // Import the new hook
+import { useCancelModel } from "@/hooks/use-cancel-model"; // Use the renamed hook
 
 const MAX_FREE_MODELS = 5;
 
@@ -54,7 +54,8 @@ const Dashboard = () => {
   const { isPremium, userId, isLoading: isUserStatusLoading, is_in_training } = useUserStatus();
   const [currentTime, setCurrentTime] = useState(Date.now());
   
-  const { mutate: cancelStuckModel, isPending: isCancelling } = useCancelStuckModel(); // Use the new hook
+  // Use the generic cancel hook
+  const { mutate: cancelModel, isPending: isCancelling } = useCancelModel(); 
 
   // Update current time every second for the elapsed timer
   useEffect(() => {
@@ -119,8 +120,22 @@ const Dashboard = () => {
   const handleDeleteModel = (model: VoiceModel) => {
     deleteModelMutation.mutate({ id: model.id, name: model.name });
   };
+  
+  const handleCancelStuckModel = (modelId: string) => {
+      if (userId) {
+          // isManualCancel: false for stuck models
+          cancelModel({ modelId, userId, isManualCancel: false }); 
+      }
+  };
+  
+  const handleManualCancel = (modelId: string) => {
+      if (userId) {
+          // isManualCancel: true for manual cancellation
+          cancelModel({ modelId, userId, isManualCancel: true }); 
+      }
+  };
 
-  // 3. Realtime Subscription
+  // 4. Realtime Subscription
   useEffect(() => {
     if (!userId) return;
 
@@ -375,7 +390,7 @@ const Dashboard = () => {
                             <Button 
                                 variant="destructive" 
                                 size="sm" 
-                                onClick={() => userId && cancelStuckModel({ modelId: model.id, userId })}
+                                onClick={() => handleCancelStuckModel(model.id)}
                                 disabled={isCancelling}
                             >
                                 {isCancelling ? <Loader2 className="w-4 h-4 animate-spin" /> : <Ban className="w-4 h-4" />}
@@ -439,12 +454,25 @@ const Dashboard = () => {
                       </Button>
                     )}
                     
+                    {isProcessing && (
+                        <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="flex-1 gap-2 text-destructive border-destructive hover:bg-destructive/10"
+                            onClick={() => handleManualCancel(model.id)}
+                            disabled={isCancelling}
+                        >
+                            {isCancelling ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
+                            Annuler
+                        </Button>
+                    )}
+                    
                     <AlertDialog>
                         <AlertDialogTrigger asChild>
                             <Button
                                 variant="ghost"
                                 size="icon"
-                                className={cn(model.status !== "completed" && "flex-1")}
+                                className={cn(model.status !== "completed" && !isProcessing && "flex-1")}
                                 disabled={deleteModelMutation.isPending}
                             >
                                 {deleteModelMutation.isPending ? (

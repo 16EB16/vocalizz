@@ -5,15 +5,17 @@ import { useToast } from "./use-toast";
 interface CancelPayload {
   modelId: string;
   userId: string;
+  isManualCancel: boolean; // Flag to differentiate between manual and stuck cancel messages
 }
 
-const cancelStuckModel = async ({ modelId, userId }: CancelPayload) => {
-  const { data, error: fnError } = await supabase.functions.invoke('cancel-stuck-training', {
+const cancelModel = async ({ modelId, userId }: CancelPayload) => {
+  // This function now handles both manual and stuck cancellation via the same secure endpoint
+  const { data, error: fnError } = await supabase.functions.invoke('cancel-training', {
     body: { model_id: modelId, user_id: userId },
   });
 
   if (fnError) {
-    console.error("Edge Function Invocation Error (cancel-stuck-training):", fnError);
+    console.error("Edge Function Invocation Error (cancel-training):", fnError);
     throw new Error(`Erreur de connexion au service d'annulation: ${fnError.message}`);
   }
   
@@ -23,25 +25,30 @@ const cancelStuckModel = async ({ modelId, userId }: CancelPayload) => {
   }
 };
 
-export const useCancelStuckModel = () => {
+export const useCancelModel = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: cancelStuckModel,
-    onSuccess: () => {
+    mutationFn: cancelModel,
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["voiceModels"] });
       queryClient.invalidateQueries({ queryKey: ["userProfile"] });
+      
+      const message = variables.isManualCancel 
+        ? "L'entraînement a été annulé. Les ressources sont libérées."
+        : "Le modèle bloqué a été marqué comme échoué et les ressources ont été libérées.";
+
       toast({
         title: "Entraînement annulé",
-        description: "Le modèle bloqué a été marqué comme échoué et les ressources ont été libérées.",
+        description: message,
       });
     },
     onError: (error) => {
       toast({
         variant: "destructive",
         title: "Erreur d'annulation",
-        description: error.message || "Impossible d'annuler le modèle bloqué.",
+        description: error.message || "Impossible d'annuler le modèle.",
       });
     },
   });

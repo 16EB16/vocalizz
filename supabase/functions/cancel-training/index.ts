@@ -61,7 +61,7 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  // Initialize Supabase Admin client
+  // Initialize Supabase Admin client (used for DB updates and cleanup)
   const supabaseAdmin = createClient(
     Deno.env.get("SUPABASE_URL") ?? "",
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
@@ -80,6 +80,27 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    
+    // --- AUTHENTICATION CHECK (Crucial for manual cancellation) ---
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: "Unauthorized: Missing Authorization header" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
+
+    if (authError || !user || user.id !== user_id) {
+        return new Response(JSON.stringify({ error: "Forbidden: Invalid token or user ID mismatch." }), {
+            status: 403,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+    }
+    // --- END AUTHENTICATION CHECK ---
+
 
     // 1. Fetch model details (need name for cleanup)
     const { data: model, error: fetchError } = await supabaseAdmin
@@ -97,8 +118,8 @@ serve(async (req) => {
         });
     }
 
-    // 2. Update model status to failed and record timeout error
-    const errorMessage = "Entraînement annulé automatiquement: Dépassement du temps limite (Timeout).";
+    // 2. Update model status to failed and record cancellation error
+    const errorMessage = "Entraînement annulé manuellement par l'utilisateur.";
     
     const { error: updateError } = await supabaseAdmin
       .from("voice_models")
@@ -109,7 +130,7 @@ serve(async (req) => {
       .eq("id", model_id);
 
     if (updateError) {
-      console.error("Supabase Update Error (stuck model):", updateError);
+      console.error("Supabase Update Error (manual cancel):", updateError);
       throw new Error("Failed to update model status in DB.");
     }
 
@@ -135,7 +156,7 @@ serve(async (req) => {
     });
 
   } catch (error) {
-    console.error("Cancel Stuck Training Error:", error.message);
+    console.error("Cancel Training Error:", error.message);
     return new Response(JSON.stringify({ error: error.message }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 500,
