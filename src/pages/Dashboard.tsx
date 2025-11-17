@@ -10,7 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useUserStatus } from "@/hooks/use-user-status";
 import { useVoiceModels, VoiceModel } from "@/hooks/use-voice-models";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Download, Trash2, Clock, Crown, Zap, Loader2, AlertTriangle, Cpu, Mic, Ban, Sparkles, X } from "lucide-react";
+import { Plus, Download, Trash2, Clock, Crown, Zap, Loader2, AlertTriangle, Cpu, Mic, Ban, Sparkles, X, Check } from "lucide-react";
 import BillingPortalButton from "@/components/BillingPortalButton";
 import { formatDurationString } from "@/lib/audio-utils";
 import ModelCardSkeleton from "@/components/ModelCardSkeleton";
@@ -18,6 +18,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { cn } from "@/lib/utils";
 import { useCancelModel } from "@/hooks/use-cancel-model";
 import { estimateTrainingDurationMinutes } from "@/lib/model-utils"; // Import utility
+import { useManualModelStatus } from "@/hooks/use-manual-model-status"; // Import manual status hook
 
 const MAX_FREE_MODELS = 5;
 
@@ -48,6 +49,8 @@ const Dashboard = () => {
   
   // Use the generic cancel hook
   const { mutate: cancelModel, isPending: isCancelling } = useCancelModel(); 
+  // Use the manual status hook
+  const { mutate: updateStatus, isPending: isUpdatingStatus } = useManualModelStatus();
 
   // Update current time every second for the elapsed timer
   useEffect(() => {
@@ -126,6 +129,15 @@ const Dashboard = () => {
           cancelModel({ modelId, userId, isManualCancel: true }); 
       }
   };
+  
+  const handleManualComplete = (modelId: string) => {
+      updateStatus({ modelId, status: 'completed' });
+  };
+  
+  const handleManualFail = (modelId: string) => {
+      updateStatus({ modelId, status: 'failed', errorMessage: "Échec simulé pour le débogage." });
+  };
+
 
   // 4. Realtime Subscription
   useEffect(() => {
@@ -389,6 +401,31 @@ const Dashboard = () => {
                             </Button>
                         </div>
                       )}
+                      
+                      {/* DEBUG BUTTONS for manual status update */}
+                      <div className="flex gap-2 pt-2">
+                          <Button 
+                              variant="outline" 
+                              size="sm" 
+                              className="flex-1 gap-1 text-green-600 border-green-600 hover:bg-green-600/10"
+                              onClick={() => handleManualComplete(model.id)}
+                              disabled={isUpdatingStatus || isCancelling}
+                          >
+                              <Check className="w-4 h-4" />
+                              Simuler Succès
+                          </Button>
+                          <Button 
+                              variant="outline" 
+                              size="sm" 
+                              className="flex-1 gap-1 text-destructive border-destructive hover:bg-destructive/10"
+                              onClick={() => handleManualFail(model.id)}
+                              disabled={isUpdatingStatus || isCancelling}
+                          >
+                              <X className="w-4 h-4" />
+                              Simuler Échec
+                          </Button>
+                      </div>
+                      {/* END DEBUG BUTTONS */}
                     </div>
                   )}
                   {model.status === "failed" && (
@@ -453,7 +490,7 @@ const Dashboard = () => {
                                     variant="outline" 
                                     size="sm" 
                                     className="flex-1 gap-2 text-destructive border-destructive hover:bg-destructive/10"
-                                    disabled={isCancelling}
+                                    disabled={isCancelling || isUpdatingStatus}
                                 >
                                     {isCancelling ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
                                     Annuler
@@ -485,7 +522,7 @@ const Dashboard = () => {
                                 variant="ghost"
                                 size="icon"
                                 className={cn(model.status !== "completed" && !isProcessing && "flex-1")}
-                                disabled={deleteModelMutation.isPending}
+                                disabled={deleteModelMutation.isPending || isUpdatingStatus || isCancelling}
                             >
                                 {deleteModelMutation.isPending ? (
                                     <Loader2 className="w-4 h-4 animate-spin" />
