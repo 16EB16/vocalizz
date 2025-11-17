@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Zap, Shield, Sparkles, ArrowRight } from "lucide-react";
+import { Zap, Shield, Sparkles, ArrowRight, Crown, Package } from "lucide-react";
 
 const LOGO_URL = "https://i.ibb.co/Q7169P5W/Logo-Vocalizz.png";
 
@@ -13,19 +13,20 @@ const Index = () => {
       <nav className="container mx-auto px-4 py-6">
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-3">
-            {/* New Logo Placeholder */}
             <img src={LOGO_URL} alt="Vocalizz Logo" className="h-10 w-auto" />
           </div>
           <div className="flex gap-3 items-center">
-            {/* Removed redundant 'Connexion' button */}
+            <Button variant="ghost" onClick={() => navigate("/auth?tab=signup")}>
+              Inscription
+            </Button>
             <Button onClick={() => navigate("/auth")}>
-              S'identifier
+              Connexion
             </Button>
           </div>
         </div>
       </nav>
 
-      <main className="container mx-auto px-4 py-20">
+      <main className="container mx-auto px-4 py-16 md:py-20">
         <div className="max-w-4xl mx-auto text-center mb-20">
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 border border-primary/20 mb-8">
             <Sparkles className="w-4 h-4 text-primary" />
@@ -45,16 +46,17 @@ const Index = () => {
           </p>
           
           <div className="flex gap-4 justify-center">
-            <Button size="lg" onClick={() => navigate("/auth")} className="gap-2 shadow-glow">
-              Créer mon premier modèle
+            <Button size="lg" onClick={() => navigate("/auth?tab=signup")} className="gap-2 shadow-glow">
+              Démarrer Gratuitement (5 Crédits Offerts)
               <ArrowRight className="w-4 h-4" />
             </Button>
-            <Button size="lg" variant="outline">
-              En savoir plus
+            <Button size="lg" variant="outline" onClick={() => navigate("/settings")}>
+              Voir les Plans
             </Button>
           </div>
         </div>
 
+        {/* Section Fonctionnalités */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-20">
           <Card className="bg-card border-border hover:border-primary/50 transition-all">
             <CardContent className="p-6 text-center">
@@ -96,6 +98,33 @@ const Index = () => {
           </Card>
         </div>
 
+        {/* Section Tarification Simplifiée */}
+        <div className="max-w-4xl mx-auto mb-20">
+            <h2 className="text-3xl font-bold text-center mb-8">Tarification Simple et Flexible</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <Card className="bg-card border-border p-6 text-center">
+                    <Crown className="w-8 h-8 text-yellow-500 fill-yellow-500/20 mx-auto mb-3" />
+                    <h3 className="text-xl font-semibold mb-2">Abonnements Mensuels</h3>
+                    <p className="text-muted-foreground mb-4">
+                        Recevez des crédits chaque mois et débloquez les fonctionnalités Premium (Nettoyage IA, 2000 POCH).
+                    </p>
+                    <Button variant="default" onClick={() => navigate("/settings")}>
+                        Voir les Plans Pro & Studio
+                    </Button>
+                </Card>
+                <Card className="bg-card border-border p-6 text-center">
+                    <Package className="w-8 h-8 text-secondary mx-auto mb-3" />
+                    <h3 className="text-xl font-semibold mb-2">Packs de Crédits</h3>
+                    <p className="text-muted-foreground mb-4">
+                        Rechargez votre solde à tout moment. Idéal pour les besoins ponctuels. Crédits valables à vie.
+                    </p>
+                    <Button variant="outline" onClick={() => navigate("/settings")}>
+                        Acheter des Packs
+                    </Button>
+                </Card>
+            </div>
+        </div>
+
         <Card className="bg-card border-border max-w-4xl mx-auto">
           <CardContent className="p-12 text-center">
             <h2 className="text-3xl font-bold mb-4">Comment ça marche ?</h2>
@@ -128,8 +157,8 @@ const Index = () => {
                 </p>
               </div>
             </div>
-            <Button size="lg" className="mt-8 gap-2" onClick={() => navigate("/auth")}>
-              S'identifier
+            <Button size="lg" className="mt-8 gap-2" onClick={() => navigate("/auth?tab=signup")}>
+              Créer mon premier modèle
               <ArrowRight className="w-4 h-4" />
             </Button>
           </CardContent>

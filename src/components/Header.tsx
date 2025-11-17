@@ -7,6 +7,7 @@ import { useUserStatus } from "@/hooks/use-user-status";
 import { useUserProfile } from "@/hooks/use-user-profile"; // Import useUserProfile
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
+import { useNavigate } from "react-router-dom"; // Import useNavigate
 
 const LOGO_URL = "https://i.ibb.co/Q7169P5W/Logo-Vocalizz.png";
 
@@ -52,6 +53,7 @@ interface HeaderProps {
 }
 
 export const Header = ({ onSignOut }: HeaderProps) => {
+  const navigate = useNavigate(); // Initialize useNavigate
   const { isPremium, userId, isLoading: isStatusLoading, credits, role } = useUserStatus();
   const { data: profile, isLoading: isProfileLoading } = useUserProfile(userId);
 
@@ -64,6 +66,11 @@ export const Header = ({ onSignOut }: HeaderProps) => {
     // Fallback to a generic name if profile is loading or incomplete
     return "Utilisateur";
   }, [profile]);
+  
+  const handleCreditClick = () => {
+    // Redirect to the settings page and scroll to the credit packs section
+    navigate("/settings#credit-packs");
+  };
 
   if (isLoading) {
     // Render a minimal header while loading user status
@@ -92,16 +99,24 @@ export const Header = ({ onSignOut }: HeaderProps) => {
         </nav>
 
         <div className="flex items-center gap-3">
-          {/* Credit Display */}
+          {/* Credit Display - Now a clickable CTA */}
           <Tooltip delayDuration={100}>
             <TooltipTrigger asChild>
-              <div className="flex items-center gap-1 px-3 py-1 rounded-full bg-muted text-sm font-medium cursor-default">
-                <DollarSign className="w-4 h-4 text-primary" />
+              <Button 
+                variant="secondary" 
+                size="sm" 
+                className={cn(
+                    "flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium",
+                    credits === 0 ? "bg-destructive/10 text-destructive hover:bg-destructive/20" : "bg-muted hover:bg-muted/80"
+                )}
+                onClick={handleCreditClick}
+              >
+                <DollarSign className="w-4 h-4" />
                 <span>{credits}</span>
-              </div>
+              </Button>
             </TooltipTrigger>
             <TooltipContent>
-              Solde de Crédits
+              {credits === 0 ? "Crédits épuisés. Cliquez pour recharger." : "Solde de Crédits. Cliquez pour acheter des packs."}
             </TooltipContent>
           </Tooltip>
 
