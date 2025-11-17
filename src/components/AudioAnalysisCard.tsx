@@ -1,12 +1,14 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { Zap, AlertTriangle, CheckCircle, Sparkles, Loader2 } from "lucide-react";
+import { Zap, AlertTriangle, CheckCircle, Sparkles, Loader2, DollarSign } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUserStatus } from "@/hooks/use-user-status";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { useAudioAnalysis } from "@/hooks/use-audio-analysis"; // Import the new hook
+import { COST_CLEANING_OPTION } from "@/lib/credit-utils"; // Import cost constant
+import { Badge } from "@/components/ui/badge"; // <-- FIX: Import Badge
 
 interface AudioAnalysisCardProps {
   totalDuration: number;
@@ -23,7 +25,7 @@ const AudioAnalysisCard = ({
   onCleaningOptionChange,
   cleaningOption
 }: AudioAnalysisCardProps) => {
-  const { isPremium } = useUserStatus();
+  const { isPremium, role } = useUserStatus();
   
   // Use the new hook for analysis logic
   const { qualityScore, feedback, isLowQuality } = useAudioAnalysis(totalDuration);
@@ -87,7 +89,7 @@ const AudioAnalysisCard = ({
             {/* Option Standard */}
             <div className="flex items-center space-x-3 space-y-0 p-3 border rounded-lg">
               <RadioGroupItem value="none" id="cleaning-none" />
-              <Label htmlFor="cleaning-none" className="font-normal flex-1 cursor-pointer">
+              <Label htmlFor="cleaning-none" className="font-normal flex-1 flex items-center justify-between cursor-pointer">
                 Procéder tel quel (Standard)
                 <p className="text-xs text-muted-foreground">L'entraînement utilisera les fichiers bruts.</p>
               </Label>
@@ -110,6 +112,10 @@ const AudioAnalysisCard = ({
                     Nettoyeur IA Premium
                     <div className="flex items-center gap-2">
                         <p className="text-xs text-muted-foreground hidden sm:inline">Supprime bruit de fond & réverbération</p>
+                        <Badge variant="secondary" className="bg-primary/10 text-primary hover:bg-primary/20 gap-1">
+                            <DollarSign className="w-3 h-3" />
+                            +{COST_CLEANING_OPTION} Crédits
+                        </Badge>
                         <Zap className="w-4 h-4 text-yellow-500 fill-yellow-500/20" />
                     </div>
                   </Label>
@@ -117,7 +123,7 @@ const AudioAnalysisCard = ({
               </TooltipTrigger>
               {!isPremium && (
                 <TooltipContent className="bg-yellow-600 text-white border-yellow-700">
-                  <p>Réservé aux membres Premium pour une qualité de modèle maximale.</p>
+                  <p>Réservé aux membres Pro ou Studio pour une qualité de modèle maximale.</p>
                 </TooltipContent>
               )}
             </Tooltip>

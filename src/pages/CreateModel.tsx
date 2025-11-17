@@ -9,7 +9,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { useUserStatus } from "@/hooks/use-user-status";
-import { Upload, X, Crown, Loader2, HardDrive, Clock, CheckCircle, AlertTriangle, Sparkles, Cpu, DollarSign } from "lucide-react";
+import { Upload, X, Crown, Loader2, HardDrive, Clock, CheckCircle, AlertTriangle, Sparkles, Cpu, DollarSign, ArrowRight } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -26,8 +26,10 @@ import { useVoiceModels } from "@/hooks/use-voice-models";
 import { 
   POCH_STANDARD, 
   POCH_PREMIUM, 
-  calculateCreditCost 
-} from "@/lib/credit-utils"; // Import credit utilities
+  calculateCreditCost,
+  COST_STANDARD_TRAINING,
+  COST_PREMIUM_TRAINING
+} from "@/lib/credit-utils"; // Import cost constants
 
 // Constants for limits
 const MAX_TOTAL_SIZE_MB = 120; // Max 120MB (approx. 2 hours of high-quality audio)
@@ -105,7 +107,9 @@ const CreateModel = () => {
   // Block submission if user is already training a model (limit reached)
   const isTrainingLimitReached = is_in_training; 
   
-  const canSubmit = files.length > 0 && !isOverSizeLimit && isMinDurationMet && !isSubmitting && !isCalculatingDuration && !nameError && modelNameWatch.length >= 3 && !isTrainingLimitReached && hasEnoughCredits;
+  const isNameValid = modelNameWatch.length >= 3 && !nameError && !isNameChecking;
+  
+  const canSubmit = files.length > 0 && !isOverSizeLimit && isMinDurationMet && !isSubmitting && !isCalculatingDuration && isNameValid && !isTrainingLimitReached && hasEnoughCredits;
 
   // Identify the model currently being processed (only needed for display in the blocked state)
   const processingModel = models?.find(m => m.status === 'processing' || m.status === 'preprocessing');
@@ -258,6 +262,17 @@ const CreateModel = () => {
     setFiles(files.filter((_, i) => i !== index) as AudioFile[]);
   };
 
+  const getSubmitTooltipMessage = () => {
+    if (isSubmitting) return "Opération en cours...";
+    if (isTrainingLimitReached) return `Limite d'entraînement atteinte (${active_trainings}/${max_active_trainings}). Passez à Studio pour augmenter la limite.`;
+    if (!isNameValid) return "Veuillez fournir un nom de modèle valide et unique.";
+    if (files.length === 0) return "Veuillez ajouter des fichiers audio.";
+    if (isOverSizeLimit) return `Taille maximale dépassée (${MAX_TOTAL_SIZE_MB} MB).`;
+    if (!isMinDurationMet) return `Durée audio minimale non atteinte (${formatDurationString(MIN_DURATION_SECONDS)} requis).`;
+    if (!hasEnoughCredits) return `Crédits insuffisants. Vous avez besoin de ${creditCost} crédits.`;
+    return "Lancer l'entraînement de votre modèle IA.";
+  };
+
   const onSubmit = async (values: ModelFormValues) => {
     console.log("[CreateModel] --- Démarrage de la soumission du modèle ---");
     console.log(`[CreateModel] User ID: ${userId}`);
@@ -269,13 +284,8 @@ const CreateModel = () => {
     }
 
     if (!canSubmit) {
-        if (!hasEnoughCredits) {
-            toast({ variant: "destructive", title: "Crédits insuffisants", description: `Vous avez besoin de ${creditCost} crédits pour lancer cet entraînement.` });
-        } else if (isTrainingLimitReached) {
-            toast({ variant: "destructive", title: "Limite d'entraînement atteinte", description: `Vous avez déjà ${active_trainings}/${max_active_trainings} entraînements actifs. Attendez qu'un job se termine ou passez au Plan Studio.` });
-        } else {
-            toast({ variant: "destructive", title: "Validation manquante", description: "Veuillez vérifier le nom du modèle et les exigences audio." });
-        }
+        // This should be caught by the tooltip, but we ensure a toast is shown if the button was somehow clicked
+        toast({ variant: "destructive", title: "Validation manquante", description: getSubmitTooltipMessage() });
         setIsSubmitting(false);
         return;
     }
@@ -295,14 +305,11 @@ const CreateModel = () => {
       // 1. Set user status to 'is_in_training' AND deduct credits
       console.log(`[CreateModel] Étape 1/5: Déduction de ${finalCreditCost} crédits et mise à jour du statut utilisateur.`);
       
-      // 2. Name check is already done in useEffect, but we re-check quickly
-      if (nameError) throw new Error(nameError);
-
       // Sanitize model name for folder path
       const sanitizedModelName = sanitizeFileName(values.modelName);
       const storagePathPrefix = `${userId}/${sanitizedModelName}`;
 
-      // 3. Upload files to Supabase Storage
+      // 2. Upload files to Supabase Storage
       console.log(`[CreateModel] Étape 2/5: Démarrage de l'upload de ${files.length} fichiers vers le chemin: ${storagePathPrefix}`);
       const totalFiles = files.length;
       let uploadedCount = 0;
@@ -339,7 +346,7 @@ const CreateModel = () => {
       setUploadProgress(100); // Upload complete
       console.log("[CreateModel] Étape 2/5: Upload terminé.");
 
-      // 4. Trigger External AI API (CRITICAL STEP: Edge Function handles DB entry and credit deduction)
+      // 3. Trigger External AI API (CRITICAL STEP: Edge Function handles DB entry and credit deduction)
       console.log("[CreateModel] Étape 3/5: Appel de la fonction Edge 'trigger-ai-training' (inclut la déduction de crédits).");
       const { data: apiResponse, error: apiError } = await supabase.functions.invoke('trigger-ai-training', {
         body: {
@@ -373,7 +380,7 @@ const CreateModel = () => {
       modelId = apiResponse?.model_id;
       console.log(`[CreateModel] Étape 4/5: Entraînement IA lancé avec succès. Job ID externe: ${apiResponse?.job_id}. Model ID: ${modelId}`);
 
-      // 5. Invalidate queries to reflect new model and updated credit balance
+      // 4. Invalidate queries to reflect new model and updated credit balance
       queryClient.invalidateQueries({ queryKey: ["voiceModels"] }); 
       queryClient.invalidateQueries({ queryKey: ["userProfile"] }); 
 
@@ -608,9 +615,12 @@ const CreateModel = () => {
                           <FormControl>
                             <RadioGroupItem value={String(POCH_STANDARD)} />
                           </FormControl>
-                          <FormLabel className="font-normal flex-1 cursor-pointer">
+                          <FormLabel className="font-normal flex-1 flex items-center justify-between cursor-pointer">
                             Standard ({POCH_STANDARD} POCH)
-                            <p className="text-xs text-muted-foreground">Qualité équilibrée, entraînement rapide. Coût: 1 Crédit</p>
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs text-muted-foreground">Entraînement rapide</span>
+                                <span className="font-semibold text-primary ml-2">{COST_STANDARD_TRAINING} Crédit</span>
+                            </div>
                           </FormLabel>
                         </FormItem>
 
@@ -619,7 +629,8 @@ const CreateModel = () => {
                           <TooltipTrigger asChild>
                             <div className={cn(
                               "p-3 border rounded-lg transition-colors",
-                              role === 'free' && "opacity-50 cursor-not-allowed bg-muted/50"
+                              role === 'free' && "opacity-50 cursor-not-allowed bg-muted/50",
+                              role !== 'free' && field.value === String(POCH_PREMIUM) && "border-primary"
                             )}>
                               <FormItem className="flex items-center space-x-3 space-y-0">
                                 <FormControl>
@@ -631,7 +642,8 @@ const CreateModel = () => {
                                 <FormLabel className="font-normal flex-1 flex items-center justify-between cursor-pointer">
                                   Pro ({POCH_PREMIUM} POCH)
                                   <div className="flex items-center gap-2">
-                                    <span className="text-xs text-muted-foreground">Coût: 5 Crédits</span>
+                                    <span className="text-xs text-muted-foreground">Haute Fidélité</span>
+                                    <span className="font-semibold text-primary ml-2">{COST_PREMIUM_TRAINING} Crédits</span>
                                     <Crown className="w-4 h-4 text-yellow-500 fill-yellow-500/20 ml-2" />
                                   </div>
                                 </FormLabel>
@@ -697,39 +709,49 @@ const CreateModel = () => {
                             <AlertTriangle className="w-4 h-4 shrink-0" />
                             <span>Crédits insuffisants.</span>
                         </div>
-                        <Button variant="destructive" size="sm" onClick={() => navigate("/settings")}>
+                        <Button variant="destructive" size="sm" onClick={() => navigate("/settings#credit-packs")}>
                             Acheter des crédits
+                            <ArrowRight className="w-4 h-4 ml-1" />
                         </Button>
                     </div>
                 )}
             </CardContent>
           </Card>
 
-          <div className="flex gap-4">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => navigate("/dashboard")}
-              className="flex-1"
-              disabled={isSubmitting}
-            >
-              Annuler
-            </Button>
-            <Button 
-              type="submit" 
-              disabled={!canSubmit}
-              className="flex-1 gap-2"
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  {uploadProgress !== null && uploadProgress < 100 ? "Téléchargement..." : "Lancement de l'entraînement..."}
-                </>
-              ) : (
-                `Lancer l'entraînement (${creditCost} Crédit${creditCost > 1 ? 's' : ''})`
-              )}
-            </Button>
-          </div>
+          <Tooltip delayDuration={100}>
+            <TooltipTrigger asChild>
+                <div className="flex gap-4">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => navigate("/dashboard")}
+                      className="flex-1"
+                      disabled={isSubmitting}
+                    >
+                      Annuler
+                    </Button>
+                    <Button 
+                      type="submit" 
+                      disabled={!canSubmit}
+                      className="flex-1 gap-2"
+                    >
+                      {isSubmitting ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          {uploadProgress !== null && uploadProgress < 100 ? "Téléchargement..." : "Lancement de l'entraînement..."}
+                        </>
+                      ) : (
+                        `Lancer l'entraînement (${creditCost} Crédit${creditCost > 1 ? 's' : ''})`
+                      )}
+                    </Button>
+                </div>
+            </TooltipTrigger>
+            {!canSubmit && (
+                <TooltipContent className="bg-destructive text-white border-destructive">
+                    {getSubmitTooltipMessage()}
+                </TooltipContent>
+            )}
+          </Tooltip>
           
           {/* Upload Progress Indicator */}
           {isSubmitting && uploadProgress !== null && uploadProgress < 100 && (
