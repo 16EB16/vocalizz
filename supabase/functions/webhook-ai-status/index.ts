@@ -49,8 +49,14 @@ serve(async (req) => {
     let newStatus = status;
     if (status === 'succeeded') {
         newStatus = 'completed';
-    } else if (status === 'canceled') {
-        newStatus = 'failed'; // Treat cancellation as failure for model creation
+    } else if (status === 'canceled' || status === 'failed') {
+        newStatus = 'failed'; 
+    } else {
+        // Ignore other statuses like 'starting', 'processing' if they somehow slip through the filter
+        return new Response(JSON.stringify({ success: true, ignored: status }), {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
     }
 
     // 3. Fetch model details before updating status

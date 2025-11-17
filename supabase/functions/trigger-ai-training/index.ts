@@ -147,27 +147,10 @@ serve(async (req) => {
       });
     }
 
-    // 3. Check AI Service Key
+    // 3. Check AI Service Key (CRITICAL: Fail immediately if missing)
     if (!REPLICATE_API_KEY) {
-        console.error("CRITICAL ERROR: REPLICATE_API_KEY is not set. SIMULATING SUCCESS.");
-        // SIMULATION: If key is missing, simulate success to allow app flow to continue
-        const { error: updateError } = await supabaseAdmin
-            .from("voice_models")
-            .update({ 
-                status: "processing",
-                external_job_id: "SIMULATED_JOB_ID_" + modelId,
-                error_message: "Avertissement: Clé API IA manquante. Entraînement simulé."
-            })
-            .eq("id", modelId);
-        
-        if (updateError) {
-            console.error("Supabase Update Error (simulated processing):", updateError);
-        }
-        
-        return new Response(JSON.stringify({ success: true, job_id: "SIMULATED_JOB_ID_" + modelId }), {
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-            status: 200,
-        });
+        console.error("CRITICAL ERROR: REPLICATE_API_KEY is not set.");
+        throw new Error("Clé API IA manquante. Veuillez configurer la variable d'environnement REPLICATE_API_KEY.");
     }
 
     // Determine if cleaning should be applied
@@ -200,7 +183,7 @@ serve(async (req) => {
     });
 
     if (!replicateResponse.ok) {
-      // CRITICAL IMPROVEMENT: Read the error body from Replicate
+      // Read the error body from Replicate
       let errorDetails = `Status ${replicateResponse.status}`;
       try {
         const errorBody = await replicateResponse.json();
@@ -212,31 +195,7 @@ serve(async (req) => {
       
       console.error("Replicate API Error:", errorDetails);
       
-      // --- RADICAL SOLUTION: Intercept 422 (Invalid Version) and simulate success ---
-      if (replicateResponse.status === 422) {
-          console.warn("Intercepted Replicate 422 Error (Invalid Version). SIMULATING SUCCESS.");
-          
-          const { error: updateError } = await supabaseAdmin
-            .from("voice_models")
-            .update({ 
-                status: "processing",
-                external_job_id: "SIMULATED_JOB_ID_" + modelId,
-                error_message: `Avertissement: Échec de l'appel IA (Code 422 - Version RVC invalide). Entraînement simulé. Détails: ${errorDetails}`
-            })
-            .eq("id", model_id);
-
-          if (updateError) {
-            console.error("Supabase Update Error (simulated processing 422):", updateError);
-          }
-          
-          return new Response(JSON.stringify({ success: true, job_id: "SIMULATED_JOB_ID_" + modelId }), {
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-            status: 200,
-          });
-      }
-      // --- END RADICAL SOLUTION ---
-
-      // If it's another critical error (e.g., 401, 500), throw the error to trigger cleanup
+      // Throw the error to trigger the cleanup in the catch block
       throw new Error(`Échec de l'appel à l'API IA. Détails: ${errorDetails}`);
     }
 
