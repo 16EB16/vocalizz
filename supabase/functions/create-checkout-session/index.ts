@@ -27,14 +27,33 @@ serve(async (req) => {
   }
 
   try {
-    const { returnUrl, priceId, mode } = await req.json(); // Expect priceId and mode (subscription/payment)
+    const { returnUrl, priceId: inputPriceId, mode } = await req.json(); 
     
-    if (!priceId || !mode) {
+    if (!inputPriceId || !mode) {
         return new Response(JSON.stringify({ error: "Missing priceId or mode in request body." }), {
             status: 400,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
     }
+    
+    let finalPriceId = inputPriceId;
+
+    // CRITICAL FIX: If the input is a Product ID (prod_...), fetch the default Price ID.
+    if (inputPriceId.startsWith('prod_')) {
+        console.log(`Input is a Product ID (${inputPriceId}). Fetching default price.`);
+        
+        const product = await stripe.products.retrieve(inputPriceId, {
+            expand: ['default_price'],
+        });
+
+        if (product.default_price && typeof product.default_price !== 'string') {
+            finalPriceId = product.default_price.id;
+            console.log(`Found default Price ID: ${finalPriceId}`);
+        } else {
+            throw new Error(`No default price found for product ID: ${inputPriceId}.`);
+        }
+    }
+
 
     // 1. Authenticate user via JWT
     const authHeader = req.headers.get("Authorization");
@@ -102,7 +121,7 @@ serve(async (req) => {
       customer: customerId,
       line_items: [
         {
-          price: priceId, 
+          price: finalPriceId, // Use the resolved Price ID
           quantity: 1,
         },
       ],
