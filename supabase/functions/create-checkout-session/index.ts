@@ -8,9 +8,11 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// --- CONFIGURATION DES PRIX (À REMPLACER PAR VOS VRAIS IDs STRIPE) ---
-// Note: The frontend must pass the desired priceId in the request body.
-const PREMIUM_PRICE_ID = "price_1STLoxBP8Akgd3ZkiVykNJ3J"; // Old default, kept for reference
+// --- CONFIGURATION DES PRIX (Utilisation des IDs de Produit fournis comme IDs de Prix) ---
+const PRICE_ID_PRO = "prod_TRHMJTr0niy6sB"; 
+const PRICE_ID_STUDIO = "prod_TRHOTQn3cmA3BQ"; 
+const PRICE_ID_PACK_10 = "prod_TRHQ9KiesC5ZEl";
+const PRICE_ID_PACK_50 = "prod_TRHSQFBfyRBoTa";
 // --------------------------------------------------------------------
 
 // Initialize Stripe client using the secret key from environment variables

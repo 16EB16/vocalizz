@@ -11,11 +11,11 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// --- CONFIGURATION DES PRIX (À REMPLACER PAR VOS VRAIS IDs STRIPE) ---
-const PRICE_ID_PRO = "price_1PRO_ID"; 
-const PRICE_ID_STUDIO = "price_1STUDIO_ID"; 
-const PRICE_ID_PACK_10 = "price_1PACK10_ID";
-const PRICE_ID_PACK_50 = "price_1PACK50_ID";
+// --- CONFIGURATION DES PRIX (Utilisation des IDs de Produit fournis comme IDs de Prix) ---
+const PRICE_ID_PRO = "prod_TRHMJTr0niy6sB"; 
+const PRICE_ID_STUDIO = "prod_TRHOTQn3cmA3BQ"; 
+const PRICE_ID_PACK_10 = "prod_TRHQ9KiesC5ZEl";
+const PRICE_ID_PACK_50 = "prod_TRHSQFBfyRBoTa";
 
 const SUBSCRIPTION_CREDITS = {
     [PRICE_ID_PRO]: { role: 'pro', credits: 20 },
@@ -64,7 +64,8 @@ serve(async (req) => {
       case 'checkout.session.completed':
         customerId = data.customer as string;
         userId = data.metadata?.user_id as string; 
-        priceId = data.line_items?.data?.[0]?.price?.id || data.price?.id; // Get price ID from session or line items
+        // CRITICAL: Get the price ID from the line items for both subscription and payment modes
+        priceId = data.line_items?.data?.[0]?.price?.id || data.price?.id; 
 
         if (!userId) {
             console.error("Missing user_id in checkout session metadata.");
@@ -121,6 +122,7 @@ serve(async (req) => {
       case 'invoice.payment_succeeded':
         // Fired on successful renewal payment for subscriptions
         customerId = data.customer as string;
+        // Get price ID from the invoice line items
         priceId = data.lines?.data?.[0]?.price?.id;
 
         if (SUBSCRIPTION_CREDITS[priceId]) {
@@ -138,8 +140,7 @@ serve(async (req) => {
                 return new Response(JSON.stringify({ error: "Profile not found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
             }
             
-            // Add monthly credits (handling rollover logic is complex and usually done via RPC/DB function, 
-            // but for simplicity here, we just add them to the current balance)
+            // Add monthly credits
             updatePayload = { 
                 credits: supabaseAdmin.raw('credits + ??', credits) 
             };

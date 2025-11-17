@@ -12,13 +12,13 @@ import { cn } from "@/lib/utils";
 
 // --- CONFIGURATION DES PRIX (Doit correspondre à webhook-stripe et create-checkout-session) ---
 const PLANS = [
-    { id: "price_1PRO_ID", name: "Plan Pro", credits: 20, price: "15€ / mois", mode: "subscription", role: "pro" },
-    { id: "price_1STUDIO_ID", name: "Plan Studio", credits: 100, price: "49€ / mois", mode: "subscription", role: "studio" },
+    { id: "prod_TRHMJTr0niy6sB", name: "Plan Pro", credits: 20, price: "15€ / mois", mode: "subscription", role: "pro" },
+    { id: "prod_TRHOTQn3cmA3BQ", name: "Plan Studio", credits: 100, price: "49€ / mois", mode: "subscription", role: "studio" },
 ];
 
 const CREDIT_PACKS = [
-    { id: "price_1PACK10_ID", name: "Pack 10 Crédits", credits: 10, price: "10€", mode: "payment" },
-    { id: "price_1PACK50_ID", name: "Pack 50 Crédits", credits: 50, price: "45€", mode: "payment" },
+    { id: "prod_TRHQ9KiesC5ZEl", name: "Pack 10 Crédits", credits: 10, price: "10€", mode: "payment" },
+    { id: "prod_TRHSQFBfyRBoTa", name: "Pack 50 Crédits", credits: 50, price: "45€", mode: "payment" },
 ];
 // ------------------------------------------------------------------------------------------
 
