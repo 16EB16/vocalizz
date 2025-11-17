@@ -71,12 +71,12 @@ serve(async (req) => {
 
   let modelId: string | undefined;
   let userId: string | undefined;
-  let modelName: string | undefined; // Need to capture model name for cleanup
+  let modelName: string | undefined; 
   
-  // Initialize Supabase Admin client (used for server-side updates)
+  // Initialize Supabase Admin client (used for server-side updates and RPC calls)
   const supabaseAdmin = createClient(
     Deno.env.get("SUPABASE_URL") ?? "",
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "", // Use service role key for server-side updates
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "", 
     {
       auth: { persistSession: false },
     }
@@ -86,7 +86,6 @@ serve(async (req) => {
     // 1. Authenticate user via JWT
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
-      console.error("Authentication Error: Missing Authorization header");
       return new Response(JSON.stringify({ error: "Unauthorized: Missing Authorization header" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -95,68 +94,92 @@ serve(async (req) => {
     
     const token = authHeader.replace('Bearer ', '');
     
-    // Use Supabase Admin client to verify the JWT and get user data
     const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
 
     if (authError || !user) {
-        console.error("Authentication Error: Invalid or expired token", authError);
         return new Response(JSON.stringify({ error: "Unauthorized: Invalid or expired token" }), {
             status: 401,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
     }
     
-    // Set the verified user ID
     userId = user.id;
 
     // 2. Parse request body and validate parameters
     const body = await req.json();
-    const { model_id, user_id: body_user_id, storage_path, epochs, cleaning_option } = body;
-    modelId = model_id; // Store model_id for potential error handling
-
-    // Fetch model name from DB using model_id (needed for cleanup if Replicate call fails)
-    const { data: modelData, error: fetchModelError } = await supabaseAdmin
-        .from("voice_models")
-        .select("name")
-        .eq("id", modelId)
-        .single();
-
-    if (fetchModelError || !modelData) {
-        console.error("Error fetching model name for cleanup:", fetchModelError);
-        // We can't proceed without the model name for cleanup, but we still try to reset user status later.
-    } else {
-        modelName = modelData.name;
-    }
-
-    console.log(`[AI Trigger] Received request for model ${modelId} by user ${userId}. Model Name: ${modelName}`);
+    const { 
+        user_id: body_user_id, 
+        storage_path, 
+        epochs, 
+        cleaning_option,
+        // New fields for DB insertion and credit deduction
+        model_name,
+        quality,
+        poch_value,
+        file_count,
+        audio_duration_seconds,
+        score_qualite_source,
+        is_premium_model,
+        cost_in_credits
+    } = body;
+    
+    modelName = model_name;
 
     // Security check: Ensure the user ID in the body matches the authenticated user ID
     if (body_user_id !== userId) {
-        console.error(`Forbidden: User ID mismatch. Auth ID: ${userId}, Body ID: ${body_user_id}`);
         return new Response(JSON.stringify({ error: "Forbidden: User ID mismatch." }), {
             status: 403,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
     }
 
-    if (!model_id || !storage_path || !epochs) {
-      console.error("Missing required parameters:", { model_id, storage_path, epochs });
-      return new Response(JSON.stringify({ error: "Missing required parameters (model_id, storage_path, epochs)." }), {
+    if (!storage_path || !epochs || !modelName || cost_in_credits === undefined) {
+      return new Response(JSON.stringify({ error: "Missing required parameters for training launch." }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // 3. Check AI Service Key (CRITICAL: Fail immediately if missing)
+    // 3. CRITICAL: Deduct credits and create model entry using RPC
+    console.log(`[AI Trigger] Étape 1: Appel RPC pour déduire ${cost_in_credits} crédits et créer l'entrée DB.`);
+    const { data: new_model_id, error: rpcError } = await supabaseAdmin.rpc('deduct_credits_and_create_model', {
+        p_user_id: userId,
+        p_cost_in_credits: cost_in_credits,
+        p_model_name: model_name,
+        p_quality: quality,
+        p_poch_value: poch_value,
+        p_file_count: file_count,
+        p_audio_duration_seconds: audio_duration_seconds,
+        p_score_qualite_source: score_qualite_source,
+        p_cleaning_applied: cleaning_option === 'premium',
+        p_is_premium_model: is_premium_model
+    });
+
+    if (rpcError) {
+        // Check for the specific credit error message from the RPC function
+        if (rpcError.message.includes('Insufficient credits')) {
+            return new Response(JSON.stringify({ error: rpcError.message }), {
+                status: 402, // Payment Required
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+        }
+        console.error("RPC Error (deduct_credits_and_create_model):", rpcError);
+        throw new Error(`Erreur de transaction de crédits: ${rpcError.message}`);
+    }
+    
+    modelId = new_model_id; // Store the newly created model ID
+    console.log(`[AI Trigger] RPC réussi. Model ID: ${modelId}`);
+
+
+    // 4. Check AI Service Key
     if (!REPLICATE_API_KEY) {
-        console.error("CRITICAL ERROR: REPLICATE_API_KEY is not set.");
         throw new Error("Clé API IA manquante. Veuillez configurer la variable d'environnement REPLICATE_API_KEY.");
     }
 
     // Determine if cleaning should be applied
     const applyCleaning = cleaning_option === 'premium';
 
-    // 4. Call Replicate API to start training
+    // 5. Call Replicate API to start training
     const audioDataPath = `s3://audio-files/${storage_path}`; 
     
     console.log(`[AI Trigger] Calling Replicate API. Path: ${audioDataPath}, Epochs: ${epochs}, Cleaning: ${applyCleaning}`);
@@ -172,7 +195,7 @@ serve(async (req) => {
         input: {
           audio_data_path: audioDataPath,
           epochs: epochs,
-          model_name: model_id,
+          model_name: modelId, // Use the new model ID as the external job identifier
           // Pass cleaning flag to the AI service
           apply_cleaning: applyCleaning, 
           // Webhook URL to update Supabase when training is complete/failed
@@ -183,9 +206,7 @@ serve(async (req) => {
     });
 
     if (!replicateResponse.ok) {
-      // Read the error body from Replicate
       let errorDetails = `Status ${replicateResponse.status}`;
-      
       try {
         const errorBody = await replicateResponse.json();
         errorDetails += `: ${JSON.stringify(errorBody)}`;
@@ -194,14 +215,12 @@ serve(async (req) => {
       }
       
       console.error("Replicate API Error:", errorDetails);
-      
-      // If it's any critical error, throw it to trigger the cleanup in the catch block
       throw new Error(`Échec de l'appel à l'API IA. Détails: ${errorDetails}`);
     }
 
     const prediction = await replicateResponse.json();
     
-    // 5. Update Supabase model status to 'processing'
+    // 6. Update Supabase model status to 'processing' and link external job ID
     console.log(`[AI Trigger] Replicate job started. External ID: ${prediction.id}. Updating DB status.`);
     const { error: updateError } = await supabaseAdmin
       .from("voice_models")
@@ -209,14 +228,14 @@ serve(async (req) => {
         status: "processing",
         external_job_id: prediction.id 
       })
-      .eq("id", model_id);
+      .eq("id", modelId);
 
     if (updateError) {
       console.error("Supabase Update Error (processing):", updateError);
       // We still return success here as the AI job was successfully triggered externally.
     }
 
-    return new Response(JSON.stringify({ success: true, job_id: prediction.id }), {
+    return new Response(JSON.stringify({ success: true, job_id: prediction.id, model_id: modelId }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 200,
     });
@@ -224,27 +243,38 @@ serve(async (req) => {
   } catch (error) {
     console.error("AI Trigger Error:", error.message);
     
-    // If an error occurred, mark the model as failed in the DB and reset user training status
+    // If an error occurred AFTER the RPC call (i.e., during Replicate call), 
+    // we must mark the model as failed, reset is_in_training, and refund credits.
     if (modelId && userId) {
         const errorMessage = error.message || "Internal Server Error";
+        
+        // 7. Refund credits and mark as failed
+        console.log(`[AI Trigger] Tentative de remboursement de ${cost_in_credits} crédits pour l'échec du modèle ${modelId}.`);
         
         // Update model status
         const { error: failError } = await supabaseAdmin
             .from("voice_models")
-            .update({ status: "failed", error_message: errorMessage }) // Record the error message
+            .update({ status: "failed", error_message: errorMessage }) 
             .eq("id", modelId);
         
         if (failError) {
             console.error("Failed to mark model as failed:", failError);
         }
         
-        // Reset user training status
-        await supabaseAdmin
+        // Reset user training status and refund credits
+        const { error: refundError } = await supabaseAdmin
             .from('profiles')
-            .update({ is_in_training: false })
+            .update({ 
+                is_in_training: false,
+                credits: supabaseAdmin.raw('credits + ??', cost_in_credits) // Safely increment credits
+            })
             .eq('id', userId);
             
-        // CRITICAL CLEANUP: If we have the model name, delete the source files
+        if (refundError) {
+            console.error("CRITICAL: Failed to refund credits:", refundError);
+        }
+            
+        // CRITICAL CLEANUP: Delete the source files
         if (modelName) {
             await deleteSourceFiles(supabaseAdmin, userId, modelName);
         }

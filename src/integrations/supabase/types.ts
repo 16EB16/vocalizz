@@ -26,6 +26,7 @@ export type Database = {
           error_message: string | null // New: Detailed error message on failure
           score_qualite_source: number | null // New: 0-100 score from AI analysis
           cleaning_applied: boolean // New: True if premium cleaning was requested
+          cost_in_credits: number // NEW: Cost of the training job in credits
         }
         Insert: {
           audio_duration_seconds?: number | null
@@ -43,6 +44,7 @@ export type Database = {
           error_message?: string | null
           score_qualite_source?: number | null
           cleaning_applied?: boolean
+          cost_in_credits?: number // NEW
         }
         Update: {
           audio_duration_seconds?: number | null
@@ -60,6 +62,7 @@ export type Database = {
           error_message?: string | null
           score_qualite_source?: number | null
           cleaning_applied?: boolean
+          cost_in_credits?: number // NEW
         }
         Relationships: [
           {
@@ -74,30 +77,33 @@ export type Database = {
       profiles: { // Renamed from user_profiles
         Row: {
           id: string
-          role: "standard" | "premium" // New: Role field
+          role: "free" | "pro" | "studio" // UPDATED: New roles
           created_at: string
           stripe_customer_id: string | null // New: Stripe Customer ID
           first_name: string | null // Added
           last_name: string | null // Added
           is_in_training: boolean // NEW: Flag to prevent multiple simultaneous trainings
+          credits: number // NEW: User's credit balance
         }
         Insert: {
           id: string
-          role?: "standard" | "premium"
+          role?: "free" | "pro" | "studio"
           created_at?: string
           stripe_customer_id?: string | null
           first_name?: string | null // Added
           last_name?: string | null // Added
           is_in_training?: boolean // NEW
+          credits?: number // NEW
         }
         Update: {
           id?: string
-          role?: "standard" | "premium"
+          role?: "free" | "pro" | "studio"
           created_at?: string
           stripe_customer_id?: string | null
           first_name?: string | null // Added
           last_name?: string | null // Added
           is_in_training?: boolean // NEW
+          credits?: number // NEW
         }
         Relationships: [
           {
@@ -117,7 +123,7 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      [_ in never]: never
+      user_role: "free" | "pro" | "studio" // NEW ENUM
     }
     CompositeTypes: {
       [_ in never]: never

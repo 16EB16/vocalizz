@@ -38,10 +38,11 @@ export const useUserStatus = () => {
   // 2. Fetch Profile Data using TanStack Query
   const { data: profile, isLoading: isProfileLoading } = useUserProfile(userId);
 
-  const role: UserRole = profile?.role ?? "standard";
+  const role: UserRole = profile?.role ?? "free"; // Default role is now 'free'
   const stripeCustomerId = profile?.stripe_customer_id ?? null;
-  const isPremium = role === "premium";
-  const is_in_training = profile?.is_in_training ?? false; // NEW: Read is_in_training
+  const credits = profile?.credits ?? 0; // NEW: Expose credits
+  const isPremium = role === "pro" || role === "studio"; // Premium status for Pro and Studio
+  const is_in_training = profile?.is_in_training ?? false; 
   const isLoading = isAuthLoading || isProfileLoading;
 
   return { 
@@ -50,6 +51,7 @@ export const useUserStatus = () => {
     isPremium, 
     isLoading, 
     stripeCustomerId,
-    is_in_training // NEW: Expose is_in_training
+    is_in_training,
+    credits, // NEW
   };
 };

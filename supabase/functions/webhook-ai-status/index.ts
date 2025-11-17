@@ -37,7 +37,6 @@ serve(async (req) => {
     // 2. Validate payload
     const externalJobId = payload.id;
     const status = payload.status; // e.g., 'succeeded', 'failed', 'canceled'
-    // const output = payload.output; // e.g., URLs to the final RVC files
 
     if (!externalJobId || !status) {
       return new Response(JSON.stringify({ error: "Invalid webhook payload." }), {
@@ -52,28 +51,29 @@ serve(async (req) => {
     } else if (status === 'canceled' || status === 'failed') {
         newStatus = 'failed'; 
     } else {
-        // Ignore other statuses like 'starting', 'processing' if they somehow slip through the filter
+        // Ignore other statuses like 'starting', 'processing'
         return new Response(JSON.stringify({ success: true, ignored: status }), {
             status: 200,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
     }
 
-    // 3. Fetch model details before updating status
+    // 3. Fetch model details (need user_id, name, and cost_in_credits)
     const { data: model, error: fetchError } = await supabaseAdmin
         .from("voice_models")
-        .select("id, user_id, name")
+        .select("id, user_id, name, cost_in_credits")
         .eq("external_job_id", externalJobId)
         .single();
 
     if (fetchError || !model) {
         console.error("Model not found for external job ID:", externalJobId);
-        // If the model is not found, it might have been deleted by the user. We return 200 to stop retries.
         return new Response(JSON.stringify({ success: true, message: "Model not found, likely deleted by user." }), {
             status: 200,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
     }
+    
+    const { user_id, cost_in_credits } = model;
 
     // 4. Update the voice_models table status
     const { error: updateError } = await supabaseAdmin
@@ -88,25 +88,43 @@ serve(async (req) => {
 
     if (updateError) {
       console.error("Supabase Webhook Update Error:", updateError);
-      // We continue to the next step even if model update failed, as resetting user status is critical.
     }
 
-    // 5. Reset user's is_in_training status
-    const { error: profileUpdateError } = await supabaseAdmin
-        .from('profiles')
-        .update({ is_in_training: false })
-        .eq('id', model.user_id);
+    // 5. Reset user's is_in_training status AND handle refund if failed
+    let refundMessage = "";
+    if (newStatus === 'failed') {
+        // Refund credits
+        const { error: refundError } = await supabaseAdmin
+            .from('profiles')
+            .update({ 
+                is_in_training: false,
+                credits: supabaseAdmin.raw('credits + ??', cost_in_credits) // Safely increment credits
+            })
+            .eq('id', user_id);
+            
+        if (refundError) {
+            console.error("CRITICAL: Failed to refund credits on AI failure:", refundError);
+            refundMessage = " (Remboursement échoué)";
+        } else {
+            refundMessage = ` (${cost_in_credits} crédits remboursés)`;
+        }
+    } else {
+        // Only reset training status if completed
+        const { error: profileUpdateError } = await supabaseAdmin
+            .from('profiles')
+            .update({ is_in_training: false })
+            .eq('id', user_id);
 
-    if (profileUpdateError) {
-        console.error("Error resetting user training status:", profileUpdateError);
-        // Log error but continue
+        if (profileUpdateError) {
+            console.error("Error resetting user training status:", profileUpdateError);
+        }
     }
 
 
     // 6. CRUCIAL: Delete source audio files if training succeeded OR failed
     if (newStatus === 'completed' || newStatus === 'failed') {
         const sanitizedModelName = sanitizeModelName(model.name);
-        const storagePathPrefix = `${model.user_id}/${sanitizedModelName}/`;
+        const storagePathPrefix = `${user_id}/${sanitizedModelName}/`;
         const bucketName = 'audio-files';
 
         // List all files in the model's directory
@@ -116,7 +134,6 @@ serve(async (req) => {
 
         if (listError) {
             console.error("Error listing files for cleanup:", listError);
-            // Log error but continue, as the main job succeeded/failed
         } else if (listData.length > 0) {
             const filesToDelete = listData
                 .filter(file => file.name !== '.emptyFolderPlaceholder')
@@ -129,15 +146,14 @@ serve(async (req) => {
 
                 if (deleteError) {
                     console.error("Error deleting source files after completion/failure:", deleteError);
-                    // Log error but continue
                 } else {
-                    console.log(`Successfully deleted ${filesToDelete.length} source files for model ${model.id} due to status ${newStatus}.`);
+                    console.log(`Successfully deleted ${filesToDelete.length} source files for model ${model.id}.`);
                 }
             }
         }
     }
 
-    return new Response(JSON.stringify({ success: true }), {
+    return new Response(JSON.stringify({ success: true, message: `Status updated to ${newStatus}${refundMessage}` }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 200,
     });

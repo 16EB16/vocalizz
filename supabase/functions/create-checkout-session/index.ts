@@ -8,14 +8,16 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// --- CONFIGURATION DES PRIX (À REMPLACER PAR VOS VRAIS IDs STRIPE) ---
+// Note: The frontend must pass the desired priceId in the request body.
+const PREMIUM_PRICE_ID = "price_1STLoxBP8Akgd3ZkiVykNJ3J"; // Old default, kept for reference
+// --------------------------------------------------------------------
+
 // Initialize Stripe client using the secret key from environment variables
 const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, {
   apiVersion: "2024-06-20",
   httpClient: Stripe.createFetchHttpClient(),
 });
-
-// Price ID for the Premium subscription (derived from the provided product details)
-const PREMIUM_PRICE_ID = "price_1STLoxBP8Akgd3ZkiVykNJ3J";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -23,8 +25,15 @@ serve(async (req) => {
   }
 
   try {
-    const { returnUrl } = await req.json();
+    const { returnUrl, priceId, mode } = await req.json(); // Expect priceId and mode (subscription/payment)
     
+    if (!priceId || !mode) {
+        return new Response(JSON.stringify({ error: "Missing priceId or mode in request body." }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+    }
+
     // 1. Authenticate user via JWT
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
@@ -58,7 +67,7 @@ serve(async (req) => {
       .eq("id", user.id)
       .single();
 
-    if (profileError && profileError.code !== 'PGRST116') throw profileError; // PGRST116 = no rows found
+    if (profileError && profileError.code !== 'PGRST116') throw profileError; 
 
     let customerId = profileData?.stripe_customer_id;
 
@@ -73,7 +82,7 @@ serve(async (req) => {
       });
       customerId = customer.id;
 
-      // Update Supabase profile with new customer ID
+      // Update Supabase profile with new customer ID (using the authenticated client)
       const { error: updateError } = await supabaseClient
         .from("profiles")
         .update({ stripe_customer_id: customerId })
@@ -81,7 +90,6 @@ serve(async (req) => {
         
       if (updateError) {
         console.error("Error updating profile with customer ID:", updateError);
-        // Log error but proceed, as the customer is created in Stripe.
       }
     }
     
@@ -92,11 +100,11 @@ serve(async (req) => {
       customer: customerId,
       line_items: [
         {
-          price: PREMIUM_PRICE_ID, // Use the hardcoded Price ID
+          price: priceId, 
           quantity: 1,
         },
       ],
-      mode: "subscription",
+      mode: mode, // 'subscription' or 'payment' (for packs)
       success_url: `${returnUrl}?success=true`,
       cancel_url: `${returnUrl}?canceled=true`,
       // Pass user ID to webhook via metadata for reliable profile update

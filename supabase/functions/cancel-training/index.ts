@@ -81,7 +81,7 @@ serve(async (req) => {
       });
     }
     
-    // --- AUTHENTICATION CHECK (Crucial for manual cancellation) ---
+    // --- AUTHENTICATION CHECK ---
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       return new Response(JSON.stringify({ error: "Unauthorized: Missing Authorization header" }), {
@@ -102,10 +102,10 @@ serve(async (req) => {
     // --- END AUTHENTICATION CHECK ---
 
 
-    // 1. Fetch model details (need name for cleanup)
+    // 1. Fetch model details (need name and cost_in_credits for cleanup/refund)
     const { data: model, error: fetchError } = await supabaseAdmin
         .from("voice_models")
-        .select("name, external_job_id")
+        .select("name, external_job_id, cost_in_credits")
         .eq("id", model_id)
         .eq("user_id", user_id)
         .single();
@@ -117,6 +117,8 @@ serve(async (req) => {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
     }
+    
+    const { cost_in_credits } = model;
 
     // 2. Update model status to failed and record cancellation error
     const errorMessage = "Entraînement annulé manuellement par l'utilisateur.";
@@ -134,14 +136,17 @@ serve(async (req) => {
       throw new Error("Failed to update model status in DB.");
     }
 
-    // 3. Reset user's is_in_training status
+    // 3. Reset user's is_in_training status AND refund credits
     const { error: profileUpdateError } = await supabaseAdmin
         .from('profiles')
-        .update({ is_in_training: false })
+        .update({ 
+            is_in_training: false,
+            credits: supabaseAdmin.raw('credits + ??', cost_in_credits) // Safely increment credits
+        })
         .eq('id', user_id);
 
     if (profileUpdateError) {
-        console.error("Error resetting user training status:", profileUpdateError);
+        console.error("Error resetting user training status and refunding credits:", profileUpdateError);
         // Log error but continue
     }
 
@@ -150,7 +155,7 @@ serve(async (req) => {
     
     // NOTE: In a real app, you would also call Replicate's API here to cancel the running job using model.external_job_id.
 
-    return new Response(JSON.stringify({ success: true, message: "Model successfully marked as failed and cleaned up." }), {
+    return new Response(JSON.stringify({ success: true, message: `Model successfully marked as failed and ${cost_in_credits} credits refunded.` }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 200,
     });

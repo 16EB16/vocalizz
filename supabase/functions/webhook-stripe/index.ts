@@ -11,6 +11,24 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// --- CONFIGURATION DES PRIX (À REMPLACER PAR VOS VRAIS IDs STRIPE) ---
+const PRICE_ID_PRO = "price_1PRO_ID"; 
+const PRICE_ID_STUDIO = "price_1STUDIO_ID"; 
+const PRICE_ID_PACK_10 = "price_1PACK10_ID";
+const PRICE_ID_PACK_50 = "price_1PACK50_ID";
+
+const SUBSCRIPTION_CREDITS = {
+    [PRICE_ID_PRO]: { role: 'pro', credits: 20 },
+    [PRICE_ID_STUDIO]: { role: 'studio', credits: 100 },
+};
+
+const PACK_CREDITS = {
+    [PRICE_ID_PACK_10]: 10,
+    [PRICE_ID_PACK_50]: 50,
+};
+// --------------------------------------------------------------------
+
+
 // Initialize Stripe client (used here mainly for signature verification in a real app)
 const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, {
   apiVersion: "2024-06-20",
@@ -32,17 +50,6 @@ serve(async (req) => {
   }
 
   // NOTE: In a production environment, you MUST verify the Stripe signature here.
-  // const signature = req.headers.get('stripe-signature');
-  // try {
-  //   event = stripe.webhooks.constructEvent(
-  //     await req.text(),
-  //     signature!,
-  //     Deno.env.get("STRIPE_WEBHOOK_SECRET")!
-  //   );
-  // } catch (err) {
-  //   console.error(`Webhook signature verification failed: ${err.message}`);
-  //   return new Response(JSON.stringify({ error: `Webhook Error: ${err.message}` }), { status: 400, headers: corsHeaders });
-  // }
 
   try {
     const event = await req.json();
@@ -50,23 +57,51 @@ serve(async (req) => {
     
     let customerId: string | undefined;
     let userId: string | undefined;
-    let newRole: 'standard' | 'premium';
-    let updatePayload: { role: 'standard' | 'premium', stripe_customer_id?: string } = { role: 'standard' };
+    let updatePayload: { role?: 'free' | 'pro' | 'studio', stripe_customer_id?: string, credits?: number } = {};
+    let priceId: string | undefined;
 
     switch (event.type) {
       case 'checkout.session.completed':
-        // Fired when a new subscription is created via Checkout
         customerId = data.customer as string;
-        userId = data.metadata?.user_id as string; // Get user ID from session metadata
-        newRole = 'premium';
-        
+        userId = data.metadata?.user_id as string; 
+        priceId = data.line_items?.data?.[0]?.price?.id || data.price?.id; // Get price ID from session or line items
+
         if (!userId) {
             console.error("Missing user_id in checkout session metadata.");
             return new Response(JSON.stringify({ error: "Missing user_id" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
-
-        updatePayload = { role: newRole, stripe_customer_id: customerId };
         
+        // --- Handle Subscription Purchase (First time) ---
+        if (SUBSCRIPTION_CREDITS[priceId]) {
+            const { role, credits } = SUBSCRIPTION_CREDITS[priceId];
+            
+            updatePayload = { 
+                role: role, 
+                stripe_customer_id: customerId,
+                // Add initial credits to the existing balance (default 5 free credits)
+                credits: supabaseAdmin.raw('credits + ??', credits) 
+            };
+            
+            console.log(`Subscription completed for user ${userId}. Setting role to ${role} and adding ${credits} credits.`);
+
+        // --- Handle Credit Pack Purchase (One-time payment) ---
+        } else if (PACK_CREDITS[priceId]) {
+            const creditsToAdd = PACK_CREDITS[priceId];
+            
+            updatePayload = { 
+                // Only update credits, keep existing role
+                credits: supabaseAdmin.raw('credits + ??', creditsToAdd) 
+            };
+            
+            console.log(`Credit pack purchased for user ${userId}. Adding ${creditsToAdd} credits.`);
+        } else {
+            console.warn(`Checkout session completed for unknown price ID: ${priceId}. Ignoring.`);
+            return new Response(JSON.stringify({ received: true, ignored: "Unknown price ID" }), {
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+                status: 200,
+            });
+        }
+
         // Update profile directly using userId
         const { error: updateCheckoutError } = await supabaseAdmin
             .from('profiles')
@@ -74,7 +109,7 @@ serve(async (req) => {
             .eq('id', userId);
 
         if (updateCheckoutError) {
-            console.error("Error updating user role/customer ID on checkout completion:", updateCheckoutError);
+            console.error("Error updating user profile on checkout completion:", updateCheckoutError);
             throw new Error("Database update failed on checkout.");
         }
         
@@ -83,24 +118,84 @@ serve(async (req) => {
             status: 200,
         });
 
-      case 'customer.subscription.updated':
-        // Fired when a subscription is renewed, upgraded, or downgraded
+      case 'invoice.payment_succeeded':
+        // Fired on successful renewal payment for subscriptions
         customerId = data.customer as string;
-        if (data.status === 'active') {
-            newRole = 'premium';
-        } else {
-            // Handle cases like 'past_due', 'unpaid', etc.
-            newRole = 'standard';
+        priceId = data.lines?.data?.[0]?.price?.id;
+
+        if (SUBSCRIPTION_CREDITS[priceId]) {
+            const { credits } = SUBSCRIPTION_CREDITS[priceId];
+            
+            // Find user by customer ID
+            const { data: profile, error: profileError } = await supabaseAdmin
+                .from('profiles')
+                .select('id, role')
+                .eq('stripe_customer_id', customerId)
+                .single();
+
+            if (profileError || !profile) {
+                console.error(`Profile not found for customer ID: ${customerId} on renewal.`);
+                return new Response(JSON.stringify({ error: "Profile not found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+            }
+            
+            // Add monthly credits (handling rollover logic is complex and usually done via RPC/DB function, 
+            // but for simplicity here, we just add them to the current balance)
+            updatePayload = { 
+                credits: supabaseAdmin.raw('credits + ??', credits) 
+            };
+            
+            const { error: updateRenewalError } = await supabaseAdmin
+                .from('profiles')
+                .update(updatePayload)
+                .eq('id', profile.id);
+
+            if (updateRenewalError) {
+                console.error("Error updating user credits on renewal:", updateRenewalError);
+                throw new Error("Database update failed on renewal.");
+            }
+            
+            console.log(`Subscription renewed for user ${profile.id}. Added ${credits} credits.`);
         }
-        updatePayload = { role: newRole };
-        break;
+        
+        return new Response(JSON.stringify({ received: true, event: event.type }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+            status: 200,
+        });
+
 
       case 'customer.subscription.deleted':
         // Fired when a subscription is canceled
         customerId = data.customer as string;
-        newRole = 'standard';
-        updatePayload = { role: newRole };
-        break;
+        
+        // Find the user profile associated with this Stripe customer ID
+        const { data: profile, error: profileError } = await supabaseAdmin
+            .from('profiles')
+            .select('id')
+            .eq('stripe_customer_id', customerId)
+            .single();
+
+        if (profileError || !profile) {
+            console.error(`Profile not found for customer ID: ${customerId} on cancellation.`);
+            return new Response(JSON.stringify({ error: "Profile not found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+
+        // Downgrade the user's role to 'free'
+        const { error: updateError } = await supabaseAdmin
+            .from('profiles')
+            .update({ role: 'free' })
+            .eq('id', profile.id);
+
+        if (updateError) {
+            console.error("Error downgrading user role:", updateError);
+            throw new Error("Database update failed on cancellation.");
+        }
+        
+        console.log(`Subscription deleted for user ${profile.id}. Role downgraded to free.`);
+        
+        return new Response(JSON.stringify({ received: true, event: event.type }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+            status: 200,
+        });
 
       default:
         // Ignore other events
@@ -109,36 +204,6 @@ serve(async (req) => {
           status: 200,
         });
     }
-
-    if (customerId) {
-      // Find the user profile associated with this Stripe customer ID
-      const { data: profile, error: profileError } = await supabaseAdmin
-        .from('profiles')
-        .select('id')
-        .eq('stripe_customer_id', customerId)
-        .single();
-
-      if (profileError || !profile) {
-        console.error(`Profile not found for customer ID: ${customerId}`);
-        return new Response(JSON.stringify({ error: "Profile not found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-
-      // Update the user's role
-      const { error: updateError } = await supabaseAdmin
-        .from('profiles')
-        .update(updatePayload)
-        .eq('id', profile.id);
-
-      if (updateError) {
-        console.error("Error updating user role:", updateError);
-        throw new Error("Database update failed.");
-      }
-    }
-
-    return new Response(JSON.stringify({ received: true }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-      status: 200,
-    });
 
   } catch (error) {
     console.error("Stripe Webhook Error:", error.message);

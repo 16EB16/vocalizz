@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { useUserStatus } from "@/hooks/use-user-status";
-import { Upload, X, Crown, Loader2, HardDrive, Clock, CheckCircle, AlertTriangle, Sparkles, Cpu } from "lucide-react";
+import { Upload, X, Crown, Loader2, HardDrive, Clock, CheckCircle, AlertTriangle, Sparkles, Cpu, DollarSign } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -21,12 +21,15 @@ import AudioFileList from "@/components/AudioFileList";
 import AudioAnalysisCard from "@/components/AudioAnalysisCard";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAudioAnalysis } from "@/hooks/use-audio-analysis";
-import { useCancelModel } from "@/hooks/use-cancel-model"; // Import the cancel hook
-import { useVoiceModels } from "@/hooks/use-voice-models"; // Import useVoiceModels to find the processing model
+import { useCancelModel } from "@/hooks/use-cancel-model";
+import { useVoiceModels } from "@/hooks/use-voice-models";
+import { 
+  POCH_STANDARD, 
+  POCH_PREMIUM, 
+  calculateCreditCost 
+} from "@/lib/credit-utils"; // Import credit utilities
 
-// Constants for POCH values
-const POCH_STANDARD = 500;
-const POCH_PREMIUM = 2000; // Updated from 1000 to 2000 for consistency
+// Constants for limits
 const MAX_TOTAL_SIZE_MB = 120; // Max 120MB (approx. 2 hours of high-quality audio)
 const MIN_DURATION_SECONDS = 10 * 60; // Minimum 10 minutes (600 seconds)
 
@@ -49,8 +52,8 @@ const CreateModel = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { isPremium, userId, isLoading: isStatusLoading, is_in_training } = useUserStatus();
-  const { data: models } = useVoiceModels(userId); // Fetch models to find the one in progress
+  const { isPremium, userId, isLoading: isStatusLoading, is_in_training, credits, role } = useUserStatus();
+  const { data: models } = useVoiceModels(userId);
   
   const [files, setFiles] = useState<AudioFile[]>([]);
   const [totalSize, setTotalSize] = useState(0);
@@ -73,17 +76,27 @@ const CreateModel = () => {
     },
   });
   
+  const modelNameWatch = form.watch("modelName");
+  const qualityPochWatch = Number(form.watch("qualityPoch"));
+  
   // Use the analysis hook
   const { qualityScore } = useAudioAnalysis(totalDuration);
 
-  const modelNameWatch = form.watch("modelName");
+  // --- NEW CREDIT LOGIC ---
+  const creditCost = useMemo(() => {
+    return calculateCreditCost(qualityPochWatch, cleaningOption);
+  }, [qualityPochWatch, cleaningOption]);
+  
+  const hasEnoughCredits = credits >= creditCost;
+  // --- END NEW CREDIT LOGIC ---
+
   const isOverSizeLimit = totalSize > MAX_TOTAL_SIZE_MB * 1024 * 1024;
   const isMinDurationMet = totalDuration >= MIN_DURATION_SECONDS;
   
   // Block submission if user is already training a model
   const isTrainingInProgress = is_in_training; 
   
-  const canSubmit = files.length > 0 && !isOverSizeLimit && isMinDurationMet && !isSubmitting && !isCalculatingDuration && !nameError && modelNameWatch.length >= 3 && !isTrainingInProgress;
+  const canSubmit = files.length > 0 && !isOverSizeLimit && isMinDurationMet && !isSubmitting && !isCalculatingDuration && !nameError && modelNameWatch.length >= 3 && !isTrainingInProgress && hasEnoughCredits;
 
   // Identify the model currently being processed
   const processingModel = models?.find(m => m.status === 'processing' || m.status === 'preprocessing');
@@ -97,16 +110,17 @@ const CreateModel = () => {
     setTotalDuration(duration);
   }, [files]);
 
-  // Ensure Premium quality is not selected if user is standard
+  // Ensure Premium quality is not selected if user is standard (now 'free')
   useEffect(() => {
-    if (!isPremium && form.getValues("qualityPoch") === String(POCH_PREMIUM)) {
+    // Only Pro/Studio can select Premium POCH
+    if (role === 'free' && form.getValues("qualityPoch") === String(POCH_PREMIUM)) {
       form.setValue("qualityPoch", String(POCH_STANDARD));
     }
-    // Ensure Premium cleaning is not selected if user is standard
-    if (!isPremium && cleaningOption === 'premium') {
+    // Only Pro/Studio can select Premium cleaning
+    if (role === 'free' && cleaningOption === 'premium') {
         setCleaningOption('none');
     }
-  }, [isPremium, form, cleaningOption]);
+  }, [role, form, cleaningOption]);
 
   // Real-time model name validation
   useEffect(() => {
@@ -246,35 +260,35 @@ const CreateModel = () => {
     }
 
     if (!canSubmit) {
-        toast({ variant: "destructive", title: "Validation manquante", description: "Veuillez vérifier le nom du modèle et les exigences audio." });
+        if (!hasEnoughCredits) {
+            toast({ variant: "destructive", title: "Crédits insuffisants", description: `Vous avez besoin de ${creditCost} crédits pour lancer cet entraînement.` });
+        } else {
+            toast({ variant: "destructive", title: "Validation manquante", description: "Veuillez vérifier le nom du modèle et les exigences audio." });
+        }
         setIsSubmitting(false);
         return;
     }
     
     const pochValue = Number(values.qualityPoch);
     const isPremiumModel = pochValue === POCH_PREMIUM;
-    // Use the calculated quality score
+    const finalCreditCost = creditCost; // Use the calculated cost
     const finalQualityScore = qualityScore; 
 
     setIsSubmitting(true);
     setUploadProgress(0);
-    console.log(`[CreateModel] Démarrage du processus de création de modèle: ${values.modelName} (${pochValue} POCH).`);
+    console.log(`[CreateModel] Démarrage du processus de création de modèle: ${values.modelName} (${pochValue} POCH). Coût: ${finalCreditCost} crédits.`);
 
     let modelId: string | undefined;
 
     try {
-      // 1. Set user status to 'is_in_training'
-      console.log("[CreateModel] Étape 1/5: Mise à jour du statut utilisateur (is_in_training = true).");
-      const { error: profileUpdateError } = await supabase
-        .from('profiles')
-        .update({ is_in_training: true })
-        .eq('id', userId);
-
-      if (profileUpdateError) throw new Error("Erreur lors de la mise à jour du statut d'entraînement.");
+      // 1. Set user status to 'is_in_training' AND deduct credits
+      console.log(`[CreateModel] Étape 1/5: Déduction de ${finalCreditCost} crédits et mise à jour du statut utilisateur.`);
       
-      queryClient.invalidateQueries({ queryKey: ["userProfile"] });
-      console.log("[CreateModel] Statut utilisateur mis à jour. Invalidation du cache du profil.");
-
+      // We use a single RPC call or transaction in a real app, but here we simulate the transaction 
+      // by relying on the Edge Function to handle the deduction and DB entry creation.
+      // For now, we proceed with upload and let the Edge Function handle the final deduction/DB entry.
+      // NOTE: The Edge Function 'trigger-ai-training' MUST be updated to handle the credit deduction and transaction.
+      
       // 2. Name check is already done in useEffect, but we re-check quickly
       if (nameError) throw new Error(nameError);
 
@@ -288,7 +302,6 @@ const CreateModel = () => {
       let uploadedCount = 0;
 
       const uploadPromises = files.map(file => {
-        // CRUCIAL CHECK: Ensure file name exists before sanitizing
         if (!file.name) {
             console.error("File object is missing a name property:", file);
             throw new Error("Un des fichiers audio est invalide (nom manquant).");
@@ -305,7 +318,6 @@ const CreateModel = () => {
           })
           .then(res => {
             if (res.error) {
-                // Log the specific storage error
                 console.error(`Supabase Storage Upload Error for ${file.name}:`, res.error);
                 throw new Error(`Échec de l'upload du fichier ${file.name}: ${res.error.message}`);
             }
@@ -321,80 +333,56 @@ const CreateModel = () => {
       setUploadProgress(100); // Upload complete
       console.log("[CreateModel] Étape 2/5: Upload terminé.");
 
-      // 4. Create the voice model entry (Only after successful upload)
-      console.log("[CreateModel] Étape 3/5: Création de l'entrée du modèle en base de données.");
-      const { data: modelData, error: modelError } = await supabase
-        .from("voice_models")
-        .insert({
-          user_id: userId,
-          name: values.modelName,
-          quality: isPremiumModel ? "premium" : "standard",
-          poch_value: pochValue,
-          status: "preprocessing", // Set status to preprocessing initially
-          file_count: files.length,
-          is_premium_model: isPremiumModel,
-          audio_duration_seconds: Math.round(totalDuration),
-          // New fields based on analysis and cleaning choice
-          score_qualite_source: finalQualityScore, // Use the calculated score
-          cleaning_applied: cleaningOption === 'premium', // Track if cleaning was requested
-        })
-        .select('id')
-        .single();
-
-      if (modelError || !modelData) throw modelError || new Error("Erreur lors de la création du modèle en base de données.");
-      modelId = modelData.id; // Store ID for potential cleanup
-      console.log(`[CreateModel] Entrée DB créée. Model ID: ${modelId}`);
-      queryClient.invalidateQueries({ queryKey: ["voiceModels"] }); // Trigger dashboard refresh
-
-      // 5. Trigger External AI API (Crucial Step)
-      console.log("[CreateModel] Étape 4/5: Appel de la fonction Edge 'trigger-ai-training'.");
+      // 4. Trigger External AI API (CRITICAL STEP: Edge Function handles DB entry and credit deduction)
+      console.log("[CreateModel] Étape 3/5: Appel de la fonction Edge 'trigger-ai-training' (inclut la déduction de crédits).");
       const { data: apiResponse, error: apiError } = await supabase.functions.invoke('trigger-ai-training', {
         body: {
-          model_id: modelId,
+          // Pass all necessary data, including cost and model details
           user_id: userId,
+          model_name: values.modelName, // Pass name for DB entry
+          quality: isPremiumModel ? "premium" : "standard", // Pass quality for DB entry
+          poch_value: pochValue, // Pass poch for DB entry
+          file_count: files.length, // Pass file count for DB entry
+          audio_duration_seconds: Math.round(totalDuration), // Pass duration for DB entry
+          score_qualite_source: finalQualityScore, // Pass score for DB entry
+          is_premium_model: isPremiumModel, // Pass flag for DB entry
+          cost_in_credits: finalCreditCost, // CRITICAL: Pass cost
+          
+          // Data needed for AI service
           storage_path: `${storagePathPrefix}/`, 
           epochs: pochValue,
-          // Pass cleaning option to the backend AI service
           cleaning_option: cleaningOption, 
         },
       });
 
       // Check for application-level errors returned by the Edge Function
       if (apiError || (apiResponse && apiResponse.error)) {
-        // --- RADICAL SOLUTION: Fetch detailed error message from DB ---
+        // If the error is 402 (Payment Required), the Edge Function should return a specific message
         let detailedErrorMessage = apiError?.message || apiResponse?.error || "Erreur inconnue lors du lancement de l'IA.";
         
-        // If we have a model ID, try to fetch the detailed error message recorded by the Edge Function
-        if (modelId) {
-            const { data: failedModel, error: fetchFailedError } = await supabase
-                .from("voice_models")
-                .select("error_message")
-                .eq("id", modelId)
-                .single();
-            
-            if (failedModel?.error_message) {
-                detailedErrorMessage = failedModel.error_message;
-            } else if (fetchFailedError) {
-                console.error("Failed to fetch detailed error message:", fetchFailedError);
-            }
-        }
-        // --- END RADICAL SOLUTION ---
-
+        // If the Edge Function failed, we assume the DB entry was NOT created and credits were NOT deducted.
+        // We only need to reset is_in_training if the Edge Function managed to set it before failing.
+        
         throw new Error(`Erreur de lancement IA: ${detailedErrorMessage}`);
       }
-      console.log(`[CreateModel] Étape 5/5: Entraînement IA lancé avec succès. Job ID externe: ${apiResponse?.job_id}`);
+      
+      // If successful, the Edge Function returned the model_id
+      modelId = apiResponse?.model_id;
+      console.log(`[CreateModel] Étape 4/5: Entraînement IA lancé avec succès. Job ID externe: ${apiResponse?.job_id}. Model ID: ${modelId}`);
 
+      // 5. Invalidate queries to reflect new model and updated credit balance
+      queryClient.invalidateQueries({ queryKey: ["voiceModels"] }); 
+      queryClient.invalidateQueries({ queryKey: ["userProfile"] }); 
 
       toast({
         title: "Modèle créé !",
-        description: `Vos fichiers sont uploadés. Le modèle (${pochValue} POCH) est en cours de traitement.`,
+        description: `Vos ${finalCreditCost} crédits ont été utilisés. Le modèle est en cours de traitement.`,
       });
 
       navigate("/dashboard");
     } catch (error: any) {
       console.error("[CreateModel] Erreur critique lors de la création:", error);
       
-      // Extract the error message to display
       const displayMessage = error.message || "Une erreur est survenue lors de la création du modèle.";
 
       toast({
@@ -403,15 +391,9 @@ const CreateModel = () => {
         description: displayMessage,
       });
       
-      // IMPORTANT: If any step fails, reset is_in_training flag
-      if (userId) {
-        console.log("[CreateModel] Réinitialisation du statut utilisateur (is_in_training = false) suite à l'échec.");
-        await supabase
-          .from('profiles')
-          .update({ is_in_training: false })
-          .eq('id', userId);
-        queryClient.invalidateQueries({ queryKey: ["userProfile"] });
-      }
+      // If the Edge Function failed before creating the DB entry, we don't need to reset is_in_training
+      // But we invalidate the profile just in case the status was set.
+      queryClient.invalidateQueries({ queryKey: ["userProfile"] }); 
 
     } finally {
       setIsSubmitting(false);
@@ -430,6 +412,7 @@ const CreateModel = () => {
   }
 
   if (isTrainingInProgress) {
+    // ... (existing training in progress block)
     return (
         <div className="max-w-3xl mx-auto space-y-6">
             <h1 className="text-3xl font-bold text-foreground">Créer un modèle</h1>
@@ -601,11 +584,11 @@ const CreateModel = () => {
                     <FormControl>
                       <RadioGroup
                         onValueChange={(value) => {
-                          if (Number(value) === POCH_PREMIUM && !isPremium) {
+                          if (Number(value) === POCH_PREMIUM && role === 'free') {
                             toast({ 
                                 variant: "destructive", 
                                 title: "Accès refusé", 
-                                description: `La qualité Premium (${POCH_PREMIUM} POCH) est réservée aux membres Premium.` 
+                                description: `La qualité Premium (${POCH_PREMIUM} POCH) est réservée aux membres Pro ou Studio.` 
                             });
                             return;
                           }
@@ -621,7 +604,7 @@ const CreateModel = () => {
                           </FormControl>
                           <FormLabel className="font-normal flex-1 cursor-pointer">
                             Standard ({POCH_STANDARD} POCH)
-                            <p className="text-xs text-muted-foreground">Qualité équilibrée, entraînement rapide.</p>
+                            <p className="text-xs text-muted-foreground">Qualité équilibrée, entraînement rapide. Coût: 1 Crédit</p>
                           </FormLabel>
                         </FormItem>
 
@@ -630,25 +613,28 @@ const CreateModel = () => {
                           <TooltipTrigger asChild>
                             <div className={cn(
                               "p-3 border rounded-lg transition-colors",
-                              !isPremium && "opacity-50 cursor-not-allowed bg-muted/50"
+                              role === 'free' && "opacity-50 cursor-not-allowed bg-muted/50"
                             )}>
                               <FormItem className="flex items-center space-x-3 space-y-0">
                                 <FormControl>
                                   <RadioGroupItem 
                                     value={String(POCH_PREMIUM)} 
-                                    disabled={!isPremium}
+                                    disabled={role === 'free'}
                                   />
                                 </FormControl>
                                 <FormLabel className="font-normal flex-1 flex items-center justify-between cursor-pointer">
                                   Pro ({POCH_PREMIUM} POCH)
-                                  <Crown className="w-4 h-4 text-yellow-500 fill-yellow-500/20 ml-2" />
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs text-muted-foreground">Coût: 5 Crédits</span>
+                                    <Crown className="w-4 h-4 text-yellow-500 fill-yellow-500/20 ml-2" />
+                                  </div>
                                 </FormLabel>
                               </FormItem>
                             </div>
                           </TooltipTrigger>
-                          {!isPremium && (
+                          {role === 'free' && (
                             <TooltipContent className="bg-yellow-600 text-white border-yellow-700">
-                              <p>Réservé aux membres Premium pour un rendu Haute Fidélité.</p>
+                              <p>Réservé aux membres Pro ou Studio pour un rendu Haute Fidélité.</p>
                             </TooltipContent>
                           )}
                         </Tooltip>
@@ -658,6 +644,44 @@ const CreateModel = () => {
                   </FormItem>
                 )}
               />
+            </CardContent>
+          </Card>
+          
+          {/* --- FINAL COST & SUBMIT --- */}
+          <Card className={cn(
+            "bg-card border-border",
+            !hasEnoughCredits && "border-destructive/50 bg-destructive/5"
+          )}>
+            <CardContent className="p-6 space-y-4">
+                <div className="flex justify-between items-center">
+                    <h3 className="text-lg font-bold flex items-center gap-2">
+                        <DollarSign className="w-5 h-5 text-primary" />
+                        Coût Total de l'Entraînement
+                    </h3>
+                    <span className={cn(
+                        "text-2xl font-extrabold",
+                        hasEnoughCredits ? "text-primary" : "text-destructive"
+                    )}>
+                        {creditCost} Crédit(s)
+                    </span>
+                </div>
+                
+                <div className="flex justify-between items-center text-sm">
+                    <span className="text-muted-foreground">Votre solde actuel:</span>
+                    <span className="font-semibold">{credits} Crédit(s)</span>
+                </div>
+                
+                {!hasEnoughCredits && (
+                    <div className="p-3 bg-destructive/10 border border-destructive rounded-lg text-sm text-destructive flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <AlertTriangle className="w-4 h-4 shrink-0" />
+                            <span>Crédits insuffisants.</span>
+                        </div>
+                        <Button variant="destructive" size="sm" onClick={() => navigate("/settings")}>
+                            Acheter des crédits
+                        </Button>
+                    </div>
+                )}
             </CardContent>
           </Card>
 
@@ -682,12 +706,12 @@ const CreateModel = () => {
                   {uploadProgress !== null && uploadProgress < 100 ? "Téléchargement..." : "Lancement de l'entraînement..."}
                 </>
               ) : (
-                `Lancer l'entraînement (${Number(form.watch('qualityPoch'))} POCH)`
+                `Lancer l'entraînement (${creditCost} Crédit${creditCost > 1 ? 's' : ''})`
               )}
             </Button>
           </div>
           
-          {/* Upload Progress Indicator (Moved outside the form buttons for clarity) */}
+          {/* Upload Progress Indicator */}
           {isSubmitting && uploadProgress !== null && uploadProgress < 100 && (
             <div className="space-y-2 p-3 bg-primary/5 border border-primary/20 rounded-lg mt-4">
                 <div className="flex justify-between text-sm font-medium text-primary">

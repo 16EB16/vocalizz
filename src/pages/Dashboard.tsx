@@ -10,7 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useUserStatus } from "@/hooks/use-user-status";
 import { useVoiceModels, VoiceModel } from "@/hooks/use-voice-models";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Download, Trash2, Clock, Crown, Zap, Loader2, AlertTriangle, Cpu, Mic, Ban, Sparkles, X } from "lucide-react";
+import { Plus, Download, Trash2, Clock, Crown, Zap, Loader2, AlertTriangle, Cpu, Mic, Ban, Sparkles, X, DollarSign } from "lucide-react";
 import BillingPortalButton from "@/components/BillingPortalButton";
 import { formatDurationString } from "@/lib/audio-utils";
 import ModelCardSkeleton from "@/components/ModelCardSkeleton";
@@ -43,12 +43,11 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { isPremium, userId, isLoading: isUserStatusLoading, is_in_training } = useUserStatus();
+  const { isPremium, userId, isLoading: isUserStatusLoading, is_in_training, credits, role } = useUserStatus();
   const [currentTime, setCurrentTime] = useState(Date.now());
   
   // Use the generic cancel hook
   const { mutate: cancelModel, isPending: isCancelling } = useCancelModel(); 
-  // Removed: useManualModelStatus
 
   // Update current time every second for the elapsed timer
   useEffect(() => {
@@ -61,7 +60,9 @@ const Dashboard = () => {
   // 1. Data Fetching using TanStack Query
   const { data: models, isLoading: isModelsLoading, isError } = useVoiceModels(userId);
   const modelList = models || [];
-  const canCreateNewModel = isPremium || modelList.length < MAX_FREE_MODELS;
+  
+  // Free users are limited by model count AND credits. Pro/Studio are only limited by credits.
+  const canCreateNewModel = isPremium || (modelList.length < MAX_FREE_MODELS && credits > 0);
   
   // Identify the model currently being processed
   const processingModel = modelList.find(m => m.status === 'processing' || m.status === 'preprocessing');
@@ -128,8 +129,6 @@ const Dashboard = () => {
       }
   };
   
-  // Removed: handleManualComplete and handleManualFail
-
 
   // 4. Realtime Subscription
   useEffect(() => {
@@ -161,11 +160,19 @@ const Dashboard = () => {
 
   const handleCreateModelClick = () => {
     if (!canCreateNewModel) {
-      toast({
-        variant: "destructive",
-        title: "Limite atteinte",
-        description: `Les utilisateurs gratuits sont limités à ${MAX_FREE_MODELS} modèles créés. Passez à Premium pour créer plus.`,
-      });
+      if (role === 'free' && modelList.length >= MAX_FREE_MODELS) {
+        toast({
+          variant: "destructive",
+          title: "Limite atteinte",
+          description: `Les utilisateurs gratuits sont limités à ${MAX_FREE_MODELS} modèles créés. Passez à Pro ou Studio.`,
+        });
+      } else if (credits === 0) {
+        toast({
+          variant: "destructive",
+          title: "Crédits épuisés",
+          description: "Votre solde de crédits est à zéro. Veuillez acheter un pack ou vous abonner.",
+        });
+      }
       return;
     }
     navigate("/create");
@@ -407,6 +414,16 @@ const Dashboard = () => {
                     </div>
                   )}
                   
+                  {/* Credit Cost Display */}
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <DollarSign className="w-4 h-4" />
+                      <span>Coût: 
+                          <span className="font-semibold ml-1 text-primary">
+                              {model.cost_in_credits} Crédit(s)
+                          </span>
+                      </span>
+                  </div>
+                  
                   {/* Source Quality Score */}
                   {model.score_qualite_source !== null && (
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -469,7 +486,7 @@ const Dashboard = () => {
                                 <AlertDialogHeader>
                                     <AlertDialogTitle>Annuler l'entraînement ?</AlertDialogTitle>
                                     <AlertDialogDescription>
-                                        Êtes-vous sûr de vouloir annuler l'entraînement du modèle <span className="font-semibold text-foreground">"{model.name}"</span> ? Cette action est irréversible et le modèle sera marqué comme échoué.
+                                        Êtes-vous sûr de vouloir annuler l'entraînement du modèle <span className="font-semibold text-foreground">"{model.name}"</span> ? Cette action est irréversible et le modèle sera marqué comme échoué. Vos {model.cost_in_credits} crédits seront remboursés.
                                     </AlertDialogDescription>
                                 </AlertDialogHeader>
                                 <AlertDialogFooter>
@@ -567,12 +584,24 @@ const Dashboard = () => {
         </div>
       )}
 
-      {!isPremium && !is_in_training && (
+      {role === 'free' && (
         <div className="p-4 bg-yellow-100 border border-yellow-300 text-yellow-800 rounded-lg flex justify-between items-center">
           <p className="text-sm font-medium">
-            Vous êtes en version gratuite. Limite: {modelList.length}/{MAX_FREE_MODELS} modèles créés.
+            Vous êtes en version Découverte. Solde: {credits} crédits. Limite: {modelList.length}/{MAX_FREE_MODELS} modèles créés.
           </p>
           <BillingPortalButton isPremium={isPremium} />
+        </div>
+      )}
+      
+      {credits === 0 && !is_in_training && (
+        <div className="p-4 bg-destructive/10 border border-destructive text-destructive rounded-lg flex justify-between items-center">
+          <p className="text-sm font-medium flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4" />
+            Votre solde de crédits est épuisé.
+          </p>
+          <Button variant="destructive" size="sm" onClick={() => navigate("/settings")}>
+            Acheter des crédits
+          </Button>
         </div>
       )}
 

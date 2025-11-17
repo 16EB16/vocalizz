@@ -1,7 +1,7 @@
 import React, { useMemo } from "react";
 import { NavLink } from "@/components/NavLink";
 import { cn } from "@/lib/utils";
-import { Home, PlusCircle, Settings, LogOut, Crown, User, Loader2 } from "lucide-react";
+import { Home, PlusCircle, Settings, LogOut, Crown, User, Loader2, DollarSign } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useUserStatus } from "@/hooks/use-user-status";
 import { useUserProfile } from "@/hooks/use-user-profile"; // Import useUserProfile
@@ -52,7 +52,7 @@ interface HeaderProps {
 }
 
 export const Header = ({ onSignOut }: HeaderProps) => {
-  const { isPremium, userId, isLoading: isStatusLoading } = useUserStatus();
+  const { isPremium, userId, isLoading: isStatusLoading, credits, role } = useUserStatus();
   const { data: profile, isLoading: isProfileLoading } = useUserProfile(userId);
 
   const isLoading = isStatusLoading || isProfileLoading;
@@ -92,16 +92,29 @@ export const Header = ({ onSignOut }: HeaderProps) => {
         </nav>
 
         <div className="flex items-center gap-3">
+          {/* Credit Display */}
+          <Tooltip delayDuration={100}>
+            <TooltipTrigger asChild>
+              <div className="flex items-center gap-1 px-3 py-1 rounded-full bg-muted text-sm font-medium cursor-default">
+                <DollarSign className="w-4 h-4 text-primary" />
+                <span>{credits}</span>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>
+              Solde de Crédits
+            </TooltipContent>
+          </Tooltip>
+
           {userName && (
             <div className="hidden sm:flex items-center gap-1 text-sm font-medium text-foreground/80">
               <User className="w-4 h-4 text-primary" />
               <span className="truncate max-w-[150px]">{userName}</span>
             </div>
           )}
-          {isPremium && (
+          {role !== 'free' && (
             <Badge className="bg-yellow-500 hover:bg-yellow-500/90 text-white gap-1">
               <Crown className="w-3 h-3 fill-white/30" />
-              Premium
+              {role === 'pro' ? 'Pro' : 'Studio'}
             </Badge>
           )}
           <Button variant="ghost" size="icon" onClick={onSignOut} title="Déconnexion">
