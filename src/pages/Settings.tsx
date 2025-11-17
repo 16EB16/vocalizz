@@ -19,9 +19,8 @@ const FREE_PLAN: PlanItem = {
     mode: "subscription",
     role: "free",
     credits: 5, // Initial credits
-    isRedirecting: false,
     onAction: () => {},
-    type: 'plan', // FIX: Added missing type property
+    type: 'plan',
     features: [
         { text: "5 Crédits uniques", isIncluded: true },
         { text: "1 Entraînement simultané", isIncluded: true },
@@ -39,7 +38,7 @@ const PLANS_DATA: Omit<PlanItem, 'isCurrent' | 'isRedirecting' | 'onAction'>[] =
         price: "15€", 
         mode: "subscription", 
         role: "pro",
-        type: 'plan', // FIX: Added missing type property
+        type: 'plan',
         features: [
             { text: "20 Crédits mensuels", isIncluded: true },
             { text: "1 Entraînement simultané", isIncluded: true },
@@ -56,7 +55,7 @@ const PLANS_DATA: Omit<PlanItem, 'isCurrent' | 'isRedirecting' | 'onAction'>[] =
         mode: "subscription", 
         role: "studio",
         isRecommended: true,
-        type: 'plan', // FIX: Added missing type property
+        type: 'plan',
         features: [
             { text: "100 Crédits mensuels", isIncluded: true },
             { text: "3 Entraînements simultanés", isIncluded: true },
@@ -68,8 +67,8 @@ const PLANS_DATA: Omit<PlanItem, 'isCurrent' | 'isRedirecting' | 'onAction'>[] =
 ];
 
 const CREDIT_PACKS_DATA: Omit<PackItem, 'isRedirecting' | 'onAction'>[] = [
-    { id: "prod_TRHQ9KiesC5ZEl", name: "Pack 10 Crédits", credits: 10, price: "10€", mode: "payment", type: 'pack' }, // FIX: Added missing type property
-    { id: "prod_TRHSQFBfyRBoTa", name: "Pack 50 Crédits", credits: 50, price: "45€", mode: "payment", type: 'pack' }, // FIX: Added missing type property
+    { id: "prod_TRHQ9KiesC5ZEl", name: "Pack 10 Crédits", credits: 10, price: "10€", mode: "payment", type: 'pack' },
+    { id: "prod_TRHSQFBfyRBoTa", name: "Pack 50 Crédits", credits: 50, price: "45€", mode: "payment", type: 'pack' },
 ];
 // ------------------------------------------------------------------------------------------
 
@@ -77,7 +76,7 @@ const Settings = () => {
   const { isPremium, role, credits, userId, max_active_trainings } = useUserStatus();
   const location = useLocation();
   const navigate = useNavigate();
-  const [isRedirecting, setIsRedirecting] = useState(false);
+  // Removed: const [isRedirecting, setIsRedirecting] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -100,13 +99,18 @@ const Settings = () => {
     }
   }, [location.search, location.pathname, navigate]);
   
-  const handleStripeAction = async (priceId: string, mode: 'subscription' | 'payment') => {
+  const handleStripeAction = async (
+    priceId: string, 
+    mode: 'subscription' | 'payment', 
+    startRedirect: () => void, 
+    stopRedirect: () => void
+  ) => {
     if (!userId) {
         toast.error("Erreur", { description: "Utilisateur non authentifié." });
         return;
     }
     
-    setIsRedirecting(true);
+    startRedirect(); // Start loading state on the specific card
     const returnUrl = window.location.origin + "/settings";
 
     try {
@@ -137,7 +141,7 @@ const Settings = () => {
             description: error.message || "Impossible de se connecter à Stripe. Veuillez réessayer.",
         });
     } finally {
-        setIsRedirecting(false);
+        stopRedirect(); // Stop loading state if redirection failed
     }
   };
 
@@ -148,14 +152,14 @@ const Settings = () => {
     ...plan,
     type: 'plan' as const,
     isCurrent: plan.role === role,
-    isRedirecting: isRedirecting,
+    // isRedirecting removed
     onAction: handleStripeAction,
   }));
   
   const creditPacks: PackItem[] = CREDIT_PACKS_DATA.map(pack => ({
     ...pack,
     type: 'pack' as const,
-    isRedirecting: isRedirecting,
+    // isRedirecting removed
     onAction: handleStripeAction,
   }));
 

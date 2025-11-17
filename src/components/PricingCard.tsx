@@ -3,6 +3,7 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/componen
 import { Badge } from "@/components/ui/badge";
 import { Check, Crown, Package, Loader2, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useState } from "react"; // Import useState
 
 interface Feature {
   text: string;
@@ -16,8 +17,8 @@ interface BaseItem {
   mode: 'subscription' | 'payment';
   isCurrent?: boolean;
   isRecommended?: boolean;
-  isRedirecting: boolean;
-  onAction: (priceId: string, mode: 'subscription' | 'payment') => void;
+  // isRedirecting removed from props
+  onAction: (priceId: string, mode: 'subscription' | 'payment', startRedirect: () => void, stopRedirect: () => void) => void;
 }
 
 export interface PlanItem extends BaseItem {
@@ -39,6 +40,8 @@ interface PricingCardProps {
 }
 
 const PricingCard = ({ item }: PricingCardProps) => {
+  const [isRedirecting, setIsRedirecting] = useState(false); // Internal state
+  
   const isSubscription = item.type === 'plan';
   const isCurrent = item.isCurrent;
   const isRecommended = item.isRecommended;
@@ -47,6 +50,9 @@ const PricingCard = ({ item }: PricingCardProps) => {
   const actionLabel = isCurrent ? "Plan Actif" : isSubscription ? "S'abonner" : "Acheter";
   const buttonVariant = isCurrent ? "secondary" : isSubscription ? "default" : "outline";
   const buttonClassName = isSubscription ? "bg-gradient-primary text-white hover:opacity-90" : "";
+
+  const startRedirect = () => setIsRedirecting(true);
+  const stopRedirect = () => setIsRedirecting(false);
 
   return (
     <Card className={cn(
@@ -97,10 +103,10 @@ const PricingCard = ({ item }: PricingCardProps) => {
         <Button 
           className={cn("w-full gap-2", buttonClassName)}
           variant={buttonVariant}
-          disabled={item.isCurrent || item.isRedirecting}
-          onClick={() => item.onAction(item.id, item.mode)}
+          disabled={item.isCurrent || isRedirecting}
+          onClick={() => item.onAction(item.id, item.mode, startRedirect, stopRedirect)}
         >
-          {item.isRedirecting ? (
+          {isRedirecting ? (
             <Loader2 className="w-4 h-4 animate-spin" />
           ) : (
             actionLabel
