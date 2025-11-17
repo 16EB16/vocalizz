@@ -185,7 +185,6 @@ serve(async (req) => {
     if (!replicateResponse.ok) {
       // Read the error body from Replicate
       let errorDetails = `Status ${replicateResponse.status}`;
-      let status = replicateResponse.status;
       
       try {
         const errorBody = await replicateResponse.json();
@@ -196,34 +195,7 @@ serve(async (req) => {
       
       console.error("Replicate API Error:", errorDetails);
       
-      // --- SOLUTION RADICALE: SIMULATION DE SUCCÈS EN CAS D'ERREUR 422 ---
-      if (status === 422) {
-          console.warn("Replicate returned 422 (Invalid version/permission). Simulating success to unblock application flow.");
-          // Generate a fake job ID based on the model ID
-          const fakeJobId = `simulated-job-${modelId}`;
-          
-          // Update Supabase model status to 'processing'
-          const { error: updateError } = await supabaseAdmin
-            .from("voice_models")
-            .update({ 
-              status: "processing",
-              external_job_id: fakeJobId 
-            })
-            .eq("id", model_id);
-
-          if (updateError) {
-            console.error("Supabase Update Error (simulated processing):", updateError);
-          }
-          
-          // Return success to the frontend
-          return new Response(JSON.stringify({ success: true, job_id: fakeJobId }), {
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-            status: 200,
-          });
-      }
-      // --- FIN SIMULATION ---
-      
-      // If it's any other critical error, throw it to trigger the cleanup in the catch block
+      // If it's any critical error, throw it to trigger the cleanup in the catch block
       throw new Error(`Échec de l'appel à l'API IA. Détails: ${errorDetails}`);
     }
 
