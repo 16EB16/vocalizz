@@ -136,11 +136,11 @@ serve(async (req) => {
       throw new Error("Failed to update model status in DB.");
     }
 
-    // 3. Reset user's is_in_training status AND refund credits
+    // 3. Reset user's active_trainings status AND refund credits
     const { error: profileUpdateError } = await supabaseAdmin
         .from('profiles')
         .update({ 
-            is_in_training: false,
+            active_trainings: supabaseAdmin.raw('active_trainings - 1'), // Decrement counter
             credits: supabaseAdmin.raw('credits + ??', cost_in_credits) // Safely increment credits
         })
         .eq('id', user_id);

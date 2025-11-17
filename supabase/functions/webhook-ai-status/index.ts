@@ -90,33 +90,29 @@ serve(async (req) => {
       console.error("Supabase Webhook Update Error:", updateError);
     }
 
-    // 5. Reset user's is_in_training status AND handle refund if failed
+    // 5. Reset user's active_trainings status AND handle refund if failed
     let refundMessage = "";
+    
+    // Always decrement active_trainings when a job finishes (completed or failed)
+    const profileUpdatePayload: { active_trainings: any, credits?: any } = {
+        active_trainings: supabaseAdmin.raw('active_trainings - 1')
+    };
+
     if (newStatus === 'failed') {
         // Refund credits
-        const { error: refundError } = await supabaseAdmin
-            .from('profiles')
-            .update({ 
-                is_in_training: false,
-                credits: supabaseAdmin.raw('credits + ??', cost_in_credits) // Safely increment credits
-            })
-            .eq('id', user_id);
-            
-        if (refundError) {
-            console.error("CRITICAL: Failed to refund credits on AI failure:", refundError);
-            refundMessage = " (Remboursement échoué)";
-        } else {
-            refundMessage = ` (${cost_in_credits} crédits remboursés)`;
-        }
-    } else {
-        // Only reset training status if completed
-        const { error: profileUpdateError } = await supabaseAdmin
-            .from('profiles')
-            .update({ is_in_training: false })
-            .eq('id', user_id);
+        profileUpdatePayload.credits = supabaseAdmin.raw('credits + ??', cost_in_credits);
+        refundMessage = ` (${cost_in_credits} crédits remboursés)`;
+    }
+    
+    const { error: profileUpdateError } = await supabaseAdmin
+        .from('profiles')
+        .update(profileUpdatePayload)
+        .eq('id', user_id);
 
-        if (profileUpdateError) {
-            console.error("Error resetting user training status:", profileUpdateError);
+    if (profileUpdateError) {
+        console.error("Error updating user profile status/credits:", profileUpdateError);
+        if (newStatus === 'failed') {
+            refundMessage = " (Remboursement/Décrémentation échoué)";
         }
     }
 

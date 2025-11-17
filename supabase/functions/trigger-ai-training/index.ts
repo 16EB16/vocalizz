@@ -72,6 +72,7 @@ serve(async (req) => {
   let modelId: string | undefined;
   let userId: string | undefined;
   let modelName: string | undefined; 
+  let cost_in_credits: number | undefined;
   
   // Initialize Supabase Admin client (used for server-side updates and RPC calls)
   const supabaseAdmin = createClient(
@@ -120,10 +121,11 @@ serve(async (req) => {
         audio_duration_seconds,
         score_qualite_source,
         is_premium_model,
-        cost_in_credits
+        cost_in_credits: body_cost_in_credits // Renamed to avoid conflict
     } = body;
     
     modelName = model_name;
+    cost_in_credits = body_cost_in_credits; // Store cost for potential refund
 
     // Security check: Ensure the user ID in the body matches the authenticated user ID
     if (body_user_id !== userId) {
@@ -157,9 +159,11 @@ serve(async (req) => {
 
     if (rpcError) {
         // Check for the specific credit error message from the RPC function
-        if (rpcError.message.includes('Insufficient credits')) {
+        if (rpcError.message.includes('Insufficient credits') || rpcError.message.includes('Training limit reached')) {
+            // 402 for credits, 403 for limit reached (handled by frontend error display)
+            const status = rpcError.message.includes('Insufficient credits') ? 402 : 403; 
             return new Response(JSON.stringify({ error: rpcError.message }), {
-                status: 402, // Payment Required
+                status: status, 
                 headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
         }
@@ -244,8 +248,8 @@ serve(async (req) => {
     console.error("AI Trigger Error:", error.message);
     
     // If an error occurred AFTER the RPC call (i.e., during Replicate call), 
-    // we must mark the model as failed, reset is_in_training, and refund credits.
-    if (modelId && userId) {
+    // we must mark the model as failed, reset active_trainings, and refund credits.
+    if (modelId && userId && cost_in_credits !== undefined) {
         const errorMessage = error.message || "Internal Server Error";
         
         // 7. Refund credits and mark as failed
@@ -261,17 +265,17 @@ serve(async (req) => {
             console.error("Failed to mark model as failed:", failError);
         }
         
-        // Reset user training status and refund credits
+        // Reset user training status (decrement active_trainings) and refund credits
         const { error: refundError } = await supabaseAdmin
             .from('profiles')
             .update({ 
-                is_in_training: false,
+                active_trainings: supabaseAdmin.raw('active_trainings - 1'), // Decrement counter
                 credits: supabaseAdmin.raw('credits + ??', cost_in_credits) // Safely increment credits
             })
             .eq('id', userId);
             
         if (refundError) {
-            console.error("CRITICAL: Failed to refund credits:", refundError);
+            console.error("CRITICAL: Failed to refund credits/decrement active_trainings:", refundError);
         }
             
         // CRITICAL CLEANUP: Delete the source files

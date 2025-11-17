@@ -6,6 +6,13 @@ import { useQueryClient } from "@tanstack/react-query";
 
 type UserRole = Tables<'profiles'>['role'];
 
+// Define limits based on roles
+const MAX_ACTIVE_TRAININGS: Record<UserRole, number> = {
+    'free': 1,
+    'pro': 1,
+    'studio': 3,
+};
+
 export const useUserStatus = () => {
   const queryClient = useQueryClient();
   const [userId, setUserId] = useState<string | undefined>(undefined);
@@ -42,7 +49,12 @@ export const useUserStatus = () => {
   const stripeCustomerId = profile?.stripe_customer_id ?? null;
   const credits = profile?.credits ?? 0; // NEW: Expose credits
   const isPremium = role === "pro" || role === "studio"; // Premium status for Pro and Studio
-  const is_in_training = profile?.is_in_training ?? false; 
+  
+  // Use active_trainings counter
+  const active_trainings = profile?.active_trainings ?? 0; 
+  const max_active_trainings = MAX_ACTIVE_TRAININGS[role];
+  const is_in_training = active_trainings >= max_active_trainings; // True if limit is reached
+  
   const isLoading = isAuthLoading || isProfileLoading;
 
   return { 
@@ -51,7 +63,9 @@ export const useUserStatus = () => {
     isPremium, 
     isLoading, 
     stripeCustomerId,
-    is_in_training,
-    credits, // NEW
+    active_trainings, // NEW
+    max_active_trainings, // NEW
+    is_in_training, // Renamed for compatibility, but now based on counter
+    credits, 
   };
 };

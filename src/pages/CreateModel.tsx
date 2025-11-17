@@ -52,7 +52,16 @@ const CreateModel = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { isPremium, userId, isLoading: isStatusLoading, is_in_training, credits, role } = useUserStatus();
+  const { 
+    isPremium, 
+    userId, 
+    isLoading: isStatusLoading, 
+    is_in_training, // True if active_trainings >= max_active_trainings
+    active_trainings, // Current count
+    max_active_trainings, // Max allowed count
+    credits, 
+    role 
+  } = useUserStatus();
   const { data: models } = useVoiceModels(userId);
   
   const [files, setFiles] = useState<AudioFile[]>([]);
@@ -93,12 +102,12 @@ const CreateModel = () => {
   const isOverSizeLimit = totalSize > MAX_TOTAL_SIZE_MB * 1024 * 1024;
   const isMinDurationMet = totalDuration >= MIN_DURATION_SECONDS;
   
-  // Block submission if user is already training a model
-  const isTrainingInProgress = is_in_training; 
+  // Block submission if user is already training a model (limit reached)
+  const isTrainingLimitReached = is_in_training; 
   
-  const canSubmit = files.length > 0 && !isOverSizeLimit && isMinDurationMet && !isSubmitting && !isCalculatingDuration && !nameError && modelNameWatch.length >= 3 && !isTrainingInProgress && hasEnoughCredits;
+  const canSubmit = files.length > 0 && !isOverSizeLimit && isMinDurationMet && !isSubmitting && !isCalculatingDuration && !nameError && modelNameWatch.length >= 3 && !isTrainingLimitReached && hasEnoughCredits;
 
-  // Identify the model currently being processed
+  // Identify the model currently being processed (only needed for display in the blocked state)
   const processingModel = models?.find(m => m.status === 'processing' || m.status === 'preprocessing');
 
 
@@ -262,6 +271,8 @@ const CreateModel = () => {
     if (!canSubmit) {
         if (!hasEnoughCredits) {
             toast({ variant: "destructive", title: "Crédits insuffisants", description: `Vous avez besoin de ${creditCost} crédits pour lancer cet entraînement.` });
+        } else if (isTrainingLimitReached) {
+            toast({ variant: "destructive", title: "Limite d'entraînement atteinte", description: `Vous avez déjà ${active_trainings}/${max_active_trainings} entraînements actifs. Attendez qu'un job se termine ou passez au Plan Studio.` });
         } else {
             toast({ variant: "destructive", title: "Validation manquante", description: "Veuillez vérifier le nom du modèle et les exigences audio." });
         }
@@ -283,11 +294,6 @@ const CreateModel = () => {
     try {
       // 1. Set user status to 'is_in_training' AND deduct credits
       console.log(`[CreateModel] Étape 1/5: Déduction de ${finalCreditCost} crédits et mise à jour du statut utilisateur.`);
-      
-      // We use a single RPC call or transaction in a real app, but here we simulate the transaction 
-      // by relying on the Edge Function to handle the deduction and DB entry creation.
-      // For now, we proceed with upload and let the Edge Function handle the final deduction/DB entry.
-      // NOTE: The Edge Function 'trigger-ai-training' MUST be updated to handle the credit deduction and transaction.
       
       // 2. Name check is already done in useEffect, but we re-check quickly
       if (nameError) throw new Error(nameError);
@@ -357,11 +363,8 @@ const CreateModel = () => {
 
       // Check for application-level errors returned by the Edge Function
       if (apiError || (apiResponse && apiResponse.error)) {
-        // If the error is 402 (Payment Required), the Edge Function should return a specific message
+        // If the error is 402 (Payment Required) or 403 (Limit Reached), the Edge Function should return a specific message
         let detailedErrorMessage = apiError?.message || apiResponse?.error || "Erreur inconnue lors du lancement de l'IA.";
-        
-        // If the Edge Function failed, we assume the DB entry was NOT created and credits were NOT deducted.
-        // We only need to reset is_in_training if the Edge Function managed to set it before failing.
         
         throw new Error(`Erreur de lancement IA: ${detailedErrorMessage}`);
       }
@@ -391,8 +394,7 @@ const CreateModel = () => {
         description: displayMessage,
       });
       
-      // If the Edge Function failed before creating the DB entry, we don't need to reset is_in_training
-      // But we invalidate the profile just in case the status was set.
+      // Invalidate the profile just in case the status was set.
       queryClient.invalidateQueries({ queryKey: ["userProfile"] }); 
 
     } finally {
@@ -411,38 +413,42 @@ const CreateModel = () => {
     );
   }
 
-  if (isTrainingInProgress) {
-    // ... (existing training in progress block)
+  if (isTrainingLimitReached) {
+    // Identify the model currently being processed (only needed for display in the blocked state)
+    const activeModels = models?.filter(m => m.status === 'processing' || m.status === 'preprocessing') || [];
+    
     return (
         <div className="max-w-3xl mx-auto space-y-6">
             <h1 className="text-3xl font-bold text-foreground">Créer un modèle</h1>
-            <Card className="bg-card border-border border-primary/50">
+            <Card className="bg-card border-border border-destructive/50">
                 <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-primary">
-                        <Cpu className="w-5 h-5 animate-pulse" />
-                        Entraînement en cours
+                    <CardTitle className="flex items-center gap-2 text-destructive">
+                        <Cpu className="w-5 h-5" />
+                        Limite d'entraînement atteinte
                     </CardTitle>
                     <CardDescription>
-                        Vous avez déjà un modèle en cours de création.
+                        Vous avez atteint votre limite de {max_active_trainings} entraînement(s) simultané(s).
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
                     <p className="mb-4 text-muted-foreground">
-                        Le modèle <span className="font-semibold text-foreground">{processingModel?.name || "en cours"}</span> est actuellement en cours d'entraînement. Vous ne pouvez lancer qu'un seul modèle à la fois.
+                        Votre plan actuel ({role === 'free' ? 'Découverte' : role === 'pro' ? 'Pro' : 'Studio'}) vous permet de lancer {max_active_trainings} job(s) à la fois. Vous avez actuellement {active_trainings} job(s) en cours.
                     </p>
+                    {activeModels.length > 0 && (
+                        <div className="mb-4 p-3 bg-muted rounded-lg">
+                            <p className="font-semibold mb-1">Modèles actifs:</p>
+                            <ul className="list-disc list-inside text-sm text-muted-foreground">
+                                {activeModels.map(m => <li key={m.id}>{m.name} ({m.status})</li>)}
+                            </ul>
+                        </div>
+                    )}
                     <div className="flex gap-3">
                         <Button onClick={() => navigate("/dashboard")}>
                             Retour au Studio
                         </Button>
-                        {processingModel && (
-                            <Button 
-                                variant="destructive" 
-                                onClick={() => userId && cancelModel({ modelId: processingModel.id, userId, isManualCancel: true })}
-                                disabled={isCancelling}
-                                className="gap-2"
-                            >
-                                {isCancelling ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
-                                Annuler l'entraînement
+                        {role !== 'studio' && (
+                            <Button variant="secondary" onClick={() => navigate("/settings")}>
+                                Passer à Studio (x3 simultanés)
                             </Button>
                         )}
                     </div>
@@ -650,7 +656,7 @@ const CreateModel = () => {
           {/* --- FINAL COST & SUBMIT --- */}
           <Card className={cn(
             "bg-card border-border",
-            !hasEnoughCredits && "border-destructive/50 bg-destructive/5"
+            (!hasEnoughCredits || isTrainingLimitReached) && "border-destructive/50 bg-destructive/5"
           )}>
             <CardContent className="p-6 space-y-4">
                 <div className="flex justify-between items-center">
@@ -670,6 +676,20 @@ const CreateModel = () => {
                     <span className="text-muted-foreground">Votre solde actuel:</span>
                     <span className="font-semibold">{credits} Crédit(s)</span>
                 </div>
+                
+                {isTrainingLimitReached && (
+                    <div className="p-3 bg-destructive/10 border border-destructive rounded-lg text-sm text-destructive flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <AlertTriangle className="w-4 h-4 shrink-0" />
+                            <span>Limite d'entraînement atteinte ({active_trainings}/{max_active_trainings}).</span>
+                        </div>
+                        {role !== 'studio' && (
+                            <Button variant="destructive" size="sm" onClick={() => navigate("/settings")}>
+                                Passer à Studio
+                            </Button>
+                        )}
+                    </div>
+                )}
                 
                 {!hasEnoughCredits && (
                     <div className="p-3 bg-destructive/10 border border-destructive rounded-lg text-sm text-destructive flex items-center justify-between">

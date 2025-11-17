@@ -43,7 +43,16 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { isPremium, userId, isLoading: isUserStatusLoading, is_in_training, credits, role } = useUserStatus();
+  const { 
+    isPremium, 
+    userId, 
+    isLoading: isUserStatusLoading, 
+    is_in_training, // True if active_trainings >= max_active_trainings
+    active_trainings,
+    max_active_trainings,
+    credits, 
+    role 
+  } = useUserStatus();
   const [currentTime, setCurrentTime] = useState(Date.now());
   
   // Use the generic cancel hook
@@ -62,7 +71,7 @@ const Dashboard = () => {
   const modelList = models || [];
   
   // Free users are limited by model count AND credits. Pro/Studio are only limited by credits.
-  const canCreateNewModel = isPremium || (modelList.length < MAX_FREE_MODELS && credits > 0);
+  const canCreateNewModel = !is_in_training && (isPremium || (modelList.length < MAX_FREE_MODELS && credits > 0));
   
   // Identify the model currently being processed
   const processingModel = modelList.find(m => m.status === 'processing' || m.status === 'preprocessing');
@@ -146,7 +155,7 @@ const Dashboard = () => {
         },
         () => {
           queryClient.invalidateQueries({ queryKey: ["voiceModels", userId] });
-          // Invalidate profile to catch is_in_training status changes
+          // Invalidate profile to catch active_trainings status changes
           queryClient.invalidateQueries({ queryKey: ["userProfile"] }); 
         }
       )
@@ -159,22 +168,33 @@ const Dashboard = () => {
 
 
   const handleCreateModelClick = () => {
-    if (!canCreateNewModel) {
-      if (role === 'free' && modelList.length >= MAX_FREE_MODELS) {
+    if (is_in_training) {
+        toast({
+            variant: "destructive",
+            title: "Limite d'entraînement atteinte",
+            description: `Vous avez déjà ${active_trainings}/${max_active_trainings} entraînements actifs.`,
+        });
+        return;
+    }
+    
+    if (role === 'free' && modelList.length >= MAX_FREE_MODELS) {
         toast({
           variant: "destructive",
           title: "Limite atteinte",
           description: `Les utilisateurs gratuits sont limités à ${MAX_FREE_MODELS} modèles créés. Passez à Pro ou Studio.`,
         });
-      } else if (credits === 0) {
+        return;
+    } 
+    
+    if (credits === 0) {
         toast({
           variant: "destructive",
           title: "Crédits épuisés",
           description: "Votre solde de crédits est à zéro. Veuillez acheter un pack ou vous abonner.",
         });
-      }
-      return;
+        return;
     }
+    
     navigate("/create");
   };
 
@@ -562,7 +582,7 @@ const Dashboard = () => {
           <Button 
             onClick={handleCreateModelClick} 
             className="gap-2"
-            disabled={!canCreateNewModel || is_in_training}
+            disabled={!canCreateNewModel}
           >
             <Plus className="w-4 h-4" />
             Nouveau modèle
@@ -570,16 +590,16 @@ const Dashboard = () => {
         </div>
       </div>
       
-      {is_in_training && processingModel && (
+      {active_trainings > 0 && (
         <div className="p-4 bg-primary/10 border border-primary/30 text-primary rounded-lg flex justify-between items-center gap-4">
             <div className="flex items-center gap-3">
                 <Cpu className="w-5 h-5 animate-pulse" />
                 <p className="text-sm font-medium">
-                    Entraînement en cours : <span className="font-bold">{processingModel.name}</span> ({processingModel.poch_value} POCH). Vous ne pouvez lancer qu'un seul entraînement à la fois.
+                    {active_trainings} Entraînement(s) en cours. Limite de votre plan : {max_active_trainings}.
                 </p>
             </div>
             <Button variant="secondary" size="sm" onClick={() => navigate("/create")}>
-                Voir le statut
+                Lancer un nouveau modèle
             </Button>
         </div>
       )}
@@ -593,7 +613,7 @@ const Dashboard = () => {
         </div>
       )}
       
-      {credits === 0 && !is_in_training && (
+      {credits === 0 && active_trainings === 0 && (
         <div className="p-4 bg-destructive/10 border border-destructive text-destructive rounded-lg flex justify-between items-center">
           <p className="text-sm font-medium flex items-center gap-2">
             <AlertTriangle className="w-4 h-4" />
