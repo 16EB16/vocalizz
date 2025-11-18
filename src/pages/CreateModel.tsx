@@ -23,6 +23,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useAudioAnalysis } from "@/hooks/use-audio-analysis";
 import { useCancelModel } from "@/hooks/use-cancel-model";
 import { useVoiceModels } from "@/hooks/use-voice-models";
+import { useDragAndDrop } from "@/hooks/use-drag-and-drop"; // Import the new hook
 import { 
   POCH_STANDARD, 
   POCH_PREMIUM, 
@@ -70,7 +71,6 @@ const CreateModel = () => {
   const [totalSize, setTotalSize] = useState(0);
   const [totalDuration, setTotalDuration] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
   const [isCalculatingDuration, setIsCalculatingDuration] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [isNameChecking, setIsNameChecking] = useState(false);
@@ -78,6 +78,7 @@ const CreateModel = () => {
   const [cleaningOption, setCleaningOption] = useState<'none' | 'premium'>('none');
 
   const { mutate: cancelModel, isPending: isCancelling } = useCancelModel();
+  const { isDragging, handleDragOver, handleDragLeave, handleDrop } = useDragAndDrop(); // Use the new hook
 
   const form = useForm<ModelFormValues>({
     resolver: zodResolver(formSchema),
@@ -93,13 +94,13 @@ const CreateModel = () => {
   // Use the analysis hook
   const { qualityScore } = useAudioAnalysis(totalDuration);
 
-  // --- NEW CREDIT LOGIC ---
+  // --- CREDIT LOGIC ---
   const creditCost = useMemo(() => {
     return calculateCreditCost(qualityPochWatch, cleaningOption);
   }, [qualityPochWatch, cleaningOption]);
   
   const hasEnoughCredits = credits >= creditCost;
-  // --- END NEW CREDIT LOGIC ---
+  // --- END CREDIT LOGIC ---
 
   const isOverSizeLimit = totalSize > MAX_TOTAL_SIZE_MB * 1024 * 1024;
   const isMinDurationMet = totalDuration >= MIN_DURATION_SECONDS;
@@ -236,26 +237,9 @@ const CreateModel = () => {
     validateAndAddFiles(selectedFiles);
     e.target.value = '';
   };
-
-  // Drag and Drop Handlers
-  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDragging(false);
-  };
-
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDragging(false);
-    
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const droppedFiles = Array.from(e.dataTransfer.files);
-      validateAndAddFiles(droppedFiles as File[]);
-    }
+  
+  const handleDropFiles = (droppedFiles: File[]) => {
+    validateAndAddFiles(droppedFiles);
   };
 
   const removeFile = (index: number) => {
@@ -491,7 +475,7 @@ const CreateModel = () => {
                 )}
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
+                onDrop={(e) => handleDrop(e, handleDropFiles)}
               >
                 <Upload className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
                 <Label htmlFor="file-upload" className="cursor-pointer">

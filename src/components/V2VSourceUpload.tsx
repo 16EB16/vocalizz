@@ -4,7 +4,8 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button"; // Import Button
+import { Button } from "@/components/ui/button";
+import { useDragAndDrop } from "@/hooks/use-drag-and-drop"; // Import the new hook
 
 interface V2VSourceUploadProps {
   sourceFile: File | null;
@@ -14,7 +15,7 @@ interface V2VSourceUploadProps {
 
 const V2VSourceUpload = ({ sourceFile, setSourceFile, isConverting }: V2VSourceUploadProps) => {
   const { toast } = useToast();
-  const [isDragging, setIsDragging] = useState(false);
+  const { isDragging, handleDragOver, handleDragLeave, handleDrop } = useDragAndDrop();
 
   const validateAndSetFile = useCallback((file: File) => {
     if (file.type === "audio/mp3" || file.type === "audio/wav" || file.type === "audio/mpeg") {
@@ -27,6 +28,18 @@ const V2VSourceUpload = ({ sourceFile, setSourceFile, isConverting }: V2VSourceU
       });
     }
   }, [setSourceFile, toast]);
+  
+  const handleDropFiles = (droppedFiles: File[]) => {
+    if (droppedFiles.length === 1) {
+        validateAndSetFile(droppedFiles[0]);
+    } else if (droppedFiles.length > 1) {
+        toast({
+            variant: "destructive",
+            title: "Trop de fichiers",
+            description: "Veuillez sélectionner un seul fichier audio source.",
+        });
+    }
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -34,32 +47,6 @@ const V2VSourceUpload = ({ sourceFile, setSourceFile, isConverting }: V2VSourceU
       validateAndSetFile(file);
     }
     e.target.value = '';
-  };
-
-  // Drag and Drop Handlers
-  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDragging(false);
-  };
-
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDragging(false);
-    
-    if (e.dataTransfer.files && e.dataTransfer.files.length === 1) {
-      validateAndSetFile(e.dataTransfer.files[0]);
-    } else if (e.dataTransfer.files.length > 1) {
-        toast({
-            variant: "destructive",
-            title: "Trop de fichiers",
-            description: "Veuillez sélectionner un seul fichier audio source.",
-        });
-    }
   };
 
   return (
@@ -70,7 +57,7 @@ const V2VSourceUpload = ({ sourceFile, setSourceFile, isConverting }: V2VSourceU
       )}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
+      onDrop={(e) => handleDrop(e, handleDropFiles)}
     >
       <Upload className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
       <Label htmlFor="source-file-upload" className="cursor-pointer">
