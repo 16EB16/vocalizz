@@ -1,9 +1,9 @@
 // @ts-nocheck
 /// <reference types="https://deno.land/std@0.190.0/http/server.ts" />
-/// <reference types="https://unpkg.com/@supabase/supabase-js@2.43.0/dist/module/index.js" />
+/// <reference types="https://esm.sh/@supabase/supabase-js@2.43.0?target=deno" />
 
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://unpkg.com/@supabase/supabase-js@2.43.0/dist/module/index.js";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.43.0?target=deno";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
