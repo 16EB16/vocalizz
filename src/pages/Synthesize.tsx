@@ -14,18 +14,11 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useNavigate } from "react-router-dom";
+import { useElevenLabsVoices } from "@/hooks/use-elevenlabs-voices"; // NEW IMPORT
 
 // --- CONFIGURATION T2V ---
 const MAX_CHARACTERS = 5000;
 const CHARACTERS_PER_CREDIT = 1000;
-
-// ElevenLabs Voice IDs (Premade voices for V1 MVP)
-const PREMADE_VOICES = [
-    { id: "21m00Tcm4TlvDq8ikmkf", name: "Rachel (Féminin, Américain)", model: "eleven_multilingual_v2" },
-    { id: "pNInz6obpgDQGcFJFVif", name: "Adam (Masculin, Américain)", model: "eleven_multilingual_v2" },
-    { id: "EXAVITQu4vr4xnSDxMaL", name: "Bella (Féminin, Français)", model: "eleven_multilingual_v2" },
-    // Note: In V2, we would fetch RVC models and custom ElevenLabs voices here.
-];
 
 const formSchema = z.object({
     text: z.string().min(1, "Le texte est requis.").max(MAX_CHARACTERS, `Le texte ne doit pas dépasser ${MAX_CHARACTERS} caractères.`),
@@ -38,18 +31,29 @@ const Synthesize = () => {
     const navigate = useNavigate();
     const { toast } = useToast();
     const { userId, credits, isLoading: isStatusLoading } = useUserStatus();
+    const { voices, isLoading: isVoicesLoading, isError: isVoicesError } = useElevenLabsVoices(); // NEW HOOK USAGE
     
     const [audioUrl, setAudioUrl] = useState<string | null>(null);
     const [audio, setAudio] = useState<HTMLAudioElement | null>(null);
     const [isPlaying, setIsPlaying] = useState(false);
 
+    // Determine initial voice ID based on fetched voices
+    const initialVoiceId = voices.length > 0 ? voices[0].id : "";
+
     const form = useForm<SynthesizeFormValues>({
         resolver: zodResolver(formSchema),
         defaultValues: {
             text: "",
-            voiceId: PREMADE_VOICES[0].id,
+            voiceId: initialVoiceId, // Use dynamic initial value
         },
     });
+    
+    // Update default value if voices load after form initialization
+    useEffect(() => {
+        if (voices.length > 0 && form.getValues("voiceId") === "") {
+            form.setValue("voiceId", voices[0].id);
+        }
+    }, [voices, form]);
     
     const textWatch = form.watch("text");
     const selectedVoiceId = form.watch("voiceId");
@@ -60,7 +64,7 @@ const Synthesize = () => {
     
     const hasEnoughCredits = credits >= requiredCredits;
     
-    const selectedVoice = PREMADE_VOICES.find(v => v.id === selectedVoiceId);
+    const selectedVoice = voices.find(v => v.id === selectedVoiceId); // Use fetched voices
 
     // --- Audio Playback Management ---
     const handlePlayPause = () => {
@@ -90,7 +94,7 @@ const Synthesize = () => {
         };
     }, [audio]);
     
-    // Reset audio state when URL changes (Fix for TS2554)
+    // Reset audio state when URL changes
     useEffect(() => {
         if (audioUrl) {
             if (audio) audio.pause();
@@ -105,14 +109,14 @@ const Synthesize = () => {
         mutationFn: async (values: SynthesizeFormValues) => {
             if (!userId) throw new Error("Utilisateur non authentifié.");
             
-            const voice = PREMADE_VOICES.find(v => v.id === values.voiceId);
+            const voice = voices.find(v => v.id === values.voiceId); // Use fetched voices
             if (!voice) throw new Error("Voix sélectionnée invalide.");
 
             const { data: apiResponse, error: apiError } = await supabase.functions.invoke('synthesize-t2v', {
                 body: {
                     text: values.text,
                     voice_id: values.voiceId,
-                    model_id: voice.model,
+                    model_id: voice.modelId, // Use dynamic modelId
                 },
             });
 
@@ -165,11 +169,25 @@ const Synthesize = () => {
         synthesizeMutation.mutate(values);
     };
 
-    if (isStatusLoading) {
+    if (isStatusLoading || isVoicesLoading) {
         return (
             <div className="min-h-screen bg-background flex items-center justify-center">
                 <Loader2 className="w-6 h-6 animate-spin mr-2" />
-                <p className="text-foreground">Chargement du statut...</p>
+                <p className="text-foreground">Chargement des voix disponibles...</p>
+            </div>
+        );
+    }
+    
+    if (isVoicesError || voices.length === 0) {
+        return (
+            <div className="max-w-4xl mx-auto space-y-8">
+                <h1 className="text-3xl font-bold text-foreground">Synthèse Vocale</h1>
+                <Card className="border-destructive">
+                    <CardContent className="p-6 text-destructive flex items-center gap-3">
+                        <AlertTriangle className="w-5 h-5" />
+                        <p>Erreur critique: Impossible de charger la liste des voix ElevenLabs. Veuillez vérifier la clé API ou réessayer plus tard.</p>
+                    </CardContent>
+                </Card>
             </div>
         );
     }
@@ -225,7 +243,7 @@ const Synthesize = () => {
                         <CardHeader>
                             <CardTitle>2. Choisissez la voix</CardTitle>
                             <CardDescription>
-                                Sélectionnez une voix pré-entraînée ou votre modèle RVC (V2).
+                                Sélectionnez une voix pré-entraînée ElevenLabs.
                             </CardDescription>
                         </CardHeader>
                         <CardContent>
@@ -235,16 +253,16 @@ const Synthesize = () => {
                                 render={({ field }) => (
                                     <FormItem>
                                         <FormLabel>Voix</FormLabel>
-                                        <Select onValueChange={field.onChange} defaultValue={field.value} disabled={synthesizeMutation.isPending}>
+                                        <Select onValueChange={field.onChange} value={field.value} disabled={synthesizeMutation.isPending}>
                                             <FormControl>
                                                 <SelectTrigger>
                                                     <SelectValue placeholder="Sélectionner une voix..." />
                                                 </SelectTrigger>
                                             </FormControl>
                                             <SelectContent>
-                                                {PREMADE_VOICES.map(voice => (
+                                                {voices.map(voice => (
                                                     <SelectItem key={voice.id} value={voice.id}>
-                                                        {voice.name}
+                                                        {voice.name} ({voice.labels.gender}, {voice.labels.accent})
                                                     </SelectItem>
                                                 ))}
                                             </SelectContent>
