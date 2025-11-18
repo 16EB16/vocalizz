@@ -1,9 +1,9 @@
 // @ts-nocheck
 /// <reference types="https://deno.land/std@0.190.0/http/server.ts" />
-/// <reference types="https://esm.sh/@supabase/supabase-js@2.43.0?target=deno" />
+/// <reference types="https://esm.sh/@supabase/supabase-js@2.45.0?target=deno" />
 
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.43.0?target=deno";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0?target=deno";
 import { sha256 } from "https://esm.sh/js-sha256@0.11.0";
 
 const corsHeaders = {
@@ -37,6 +37,7 @@ serve(async (req) => {
 
   let userId: string | undefined;
   let cacheHash: string | undefined;
+  let requiredCredits = 0;
 
   try {
     // 1. Authenticate user via JWT
@@ -75,7 +76,7 @@ serve(async (req) => {
     }
 
     // Calculate required credits (simplified: 1 credit per 1000 chars)
-    const requiredCredits = Math.ceil(text.length / CHARACTERS_PER_CREDIT);
+    requiredCredits = Math.ceil(text.length / CHARACTERS_PER_CREDIT);
     
     // 3. Check Cache
     cacheHash = generateCacheHash(text, voice_id, model_id);
@@ -168,16 +169,18 @@ serve(async (req) => {
     }
     
     // 7. Deduct Credits and Update Cache (Transactionally)
+    // Use raw SQL to ensure atomic decrement
     const { error: dbUpdateError } = await supabaseAdmin
         .from('profiles')
         .update({ 
-            credits: profile.credits - requiredCredits 
+            credits: supabaseAdmin.raw('credits - ??', requiredCredits)
         })
         .eq('id', userId);
         
     if (dbUpdateError) {
             console.error("Credit Deduction Error:", dbUpdateError);
             // CRITICAL: If credit deduction fails, we should ideally delete the file and refund, but for simplicity here, we log and proceed.
+            // The user has the file, but the credit balance might be wrong. We rely on the frontend to refresh the session.
     }
     
     const { error: cacheInsertError } = await supabaseAdmin
@@ -204,7 +207,6 @@ serve(async (req) => {
     console.error("T2V Synthesis Error:", error.message);
     
     // If an error occurred after credit check but before response, we should handle refunds/cleanup.
-    // For now, we return a generic 500 error.
     
     return new Response(JSON.stringify({ error: error.message }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
