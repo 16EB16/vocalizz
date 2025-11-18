@@ -174,7 +174,7 @@ serve(async (req) => {
         }
         modelId = newModel.id;
         
-        // Manually increment active_trainings (since RPC handles this normally)
+        // Manually increment active_trainings (using SQL function for atomicity)
         const { error: updateError } = await supabaseAdmin
             .from('profiles')
             .update({ active_trainings: supabaseAdmin.raw('active_trainings + 1') })
