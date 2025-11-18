@@ -1,9 +1,9 @@
 // @ts-nocheck
 /// <reference types="https://deno.land/std@0.190.0/http/server.ts" />
-/// <reference types="https://esm.sh/@supabase/supabase-js@2.43.0" />
+/// <reference types="https://unpkg.com/@supabase/supabase-js@2.43.0/dist/module/index.js" />
 
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.43.0";
+import { createClient } from "https://unpkg.com/@supabase/supabase-js@2.43.0/dist/module/index.js";
 import { sha256 } from "https://esm.sh/js-sha256@0.11.0";
 
 const corsHeaders = {
@@ -176,8 +176,8 @@ serve(async (req) => {
         .eq('id', userId);
         
     if (dbUpdateError) {
-        console.error("Credit Deduction Error:", dbUpdateError);
-        // CRITICAL: If credit deduction fails, we should ideally delete the file and refund, but for simplicity here, we log and proceed.
+            console.error("Credit Deduction Error:", dbUpdateError);
+            // CRITICAL: If credit deduction fails, we should ideally delete the file and refund, but for simplicity here, we log and proceed.
     }
     
     const { error: cacheInsertError } = await supabaseAdmin
