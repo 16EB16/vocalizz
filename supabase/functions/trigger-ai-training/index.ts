@@ -225,7 +225,7 @@ serve(async (req) => {
         throw new Error("Clé API ElevenLabs manquante. Veuillez configurer la variable d'environnement ELEVENLABS_API_KEY.");
     }
 
-    // 5. Call ElevenLabs API to start Voice Cloning
+    // 5. Call ElevenLabs API to start Voice Cloning (SIMULATION)
     
     // CRITICAL: We need to get the public URL of the uploaded files to pass to ElevenLabs.
     const bucketName = 'audio-files';
@@ -263,7 +263,9 @@ serve(async (req) => {
     
     console.log(`[AI Trigger] Generated ${signedUrls.length} signed URLs for ElevenLabs.`);
 
-    // SIMULATION START: Since constructing multipart/form-data in Deno is complex, we simulate the API call.
+    // SIMULATION START
+    // In a real implementation, the fetch call to /voices/add would happen here, 
+    // using the signed URLs and multipart/form-data.
     const external_voice_id = `el_sim_${modelId}`;
     console.log(`[AI Trigger] SIMULATION: ElevenLabs Voice Cloning started. External ID: ${external_voice_id}`);
     // SIMULATION END
