@@ -1,18 +1,16 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Loader2, Volume2, Mic, ArrowLeft, Upload, DollarSign, AlertTriangle } from "lucide-react";
+import { Loader2, Volume2, Mic, ArrowLeft, DollarSign, AlertTriangle } from "lucide-react";
 import { useVoiceModels } from "@/hooks/use-voice-models";
 import { useUserStatus } from "@/hooks/use-user-status";
 import { useMemo, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { supabase } from "@/integrations/supabase/client"; 
-import { Label } from "@/components/ui/label"; 
-import { Input } from "@/components/ui/input"; 
-import { useV2VConversion } from "@/hooks/use-v2v-conversion"; // Import the new hook
+import V2VSourceUpload from "@/components/V2VSourceUpload"; // Import new component
+import { useV2VConversion } from "@/hooks/use-v2v-conversion";
 
-// Constants for V2V cost (Example: 1 credit per V2V conversion)
+// Constants for V2V cost
 const V2V_COST_PER_CONVERSION = 1; 
 
 const UseModel = () => {
@@ -59,20 +57,6 @@ const UseModel = () => {
         );
     }
     
-    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file && (file.type === "audio/mp3" || file.type === "audio/wav" || file.type === "audio/mpeg")) {
-            setSourceFile(file);
-        } else if (file) {
-            toast({
-                variant: "destructive",
-                title: "Fichier invalide",
-                description: "Seuls les fichiers MP3 et WAV sont acceptés comme source.",
-            });
-        }
-        e.target.value = '';
-    };
-
     const handleConversion = () => {
         if (!sourceFile || !userId) return;
         
@@ -102,29 +86,11 @@ const UseModel = () => {
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <div 
-                        className={cn(
-                            "border-2 border-dashed rounded-lg p-8 text-center transition-colors",
-                            "border-border hover:border-primary/50"
-                        )}
-                    >
-                        <Upload className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                        <Label htmlFor="source-file-upload" className="cursor-pointer">
-                            <span className="text-primary hover:underline">Cliquez pour parcourir</span>
-                            <span className="text-muted-foreground"> ou glissez-déposez votre fichier</span>
-                        </Label>
-                        <Input
-                            id="source-file-upload"
-                            type="file"
-                            accept="audio/mp3,audio/wav,audio/mpeg"
-                            className="hidden"
-                            onChange={handleFileChange}
-                            disabled={isConverting}
-                        />
-                        <p className="text-sm text-muted-foreground mt-2">
-                            {sourceFile ? `Fichier sélectionné: ${sourceFile.name}` : "MP3 ou WAV uniquement."}
-                        </p>
-                    </div>
+                    <V2VSourceUpload 
+                        sourceFile={sourceFile}
+                        setSourceFile={setSourceFile}
+                        isConverting={isConverting}
+                    />
                 </CardContent>
             </Card>
             
