@@ -1,11 +1,11 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useUserStatus } from "@/hooks/use-user-status";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Volume2, DollarSign, AlertTriangle, Play, Pause } from "lucide-react";
+import { Loader2, Volume2, DollarSign, AlertTriangle, Play, Pause, ArrowRight } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { useMutation } from "@tanstack/react-query";
@@ -80,18 +80,18 @@ const Synthesize = () => {
         }
     };
 
-    // Cleanup audio element on unmount or URL change
-    useState(() => {
+    // Cleanup audio element on unmount
+    useEffect(() => {
         return () => {
             if (audio) {
                 audio.pause();
                 setAudio(null);
             }
         };
-    });
+    }, [audio]);
     
-    // Reset audio state when URL changes
-    useState(() => {
+    // Reset audio state when URL changes (Fix for TS2554)
+    useEffect(() => {
         if (audioUrl) {
             if (audio) audio.pause();
             setAudio(null);
