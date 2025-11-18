@@ -10,6 +10,11 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// --- ElevenLabs Configuration ---
+const ELEVENLABS_API_KEY = Deno.env.get("ELEVENLABS_API_KEY");
+const ELEVENLABS_API_URL = "https://api.elevenlabs.io/v1";
+// ---
+
 // Utility function to sanitize model name (MUST match frontend/create-model logic)
 const sanitizeModelName = (name: string | undefined) => {
     const safeName = String(name || 'untitled_file');
@@ -102,7 +107,7 @@ serve(async (req) => {
     // --- END AUTHENTICATION CHECK ---
 
 
-    // 1. Fetch model details (need name and cost_in_credits for cleanup/refund)
+    // 1. Fetch model details (need name, external_job_id, and cost_in_credits for cleanup/refund)
     const { data: model, error: fetchError } = await supabaseAdmin
         .from("voice_models")
         .select("name, external_job_id, cost_in_credits")
@@ -118,9 +123,19 @@ serve(async (req) => {
         });
     }
     
-    const { cost_in_credits } = model;
+    const { cost_in_credits, external_job_id } = model;
 
-    // 2. Update model status to failed and record cancellation error
+    // 2. Attempt to cancel/delete the voice on ElevenLabs (if external ID exists)
+    if (external_job_id && external_job_id.startsWith('el_sim_') === false) {
+        console.log(`Attempting to delete ElevenLabs voice ID: ${external_job_id}`);
+        
+        // NOTE: In a real app, you would call the ElevenLabs API to delete the voice here:
+        // const deleteResponse = await fetch(`${ELEVENLABS_API_URL}/voices/${external_job_id}`, { method: "DELETE", headers: { "xi-api-key": ELEVENLABS_API_KEY } });
+        // if (!deleteResponse.ok) { console.error("ElevenLabs Delete Error:", await deleteResponse.text()); }
+    }
+
+
+    // 3. Update model status to failed and record cancellation error
     const errorMessage = "Entraînement annulé manuellement par l'utilisateur.";
     
     const { error: updateError } = await supabaseAdmin
@@ -136,7 +151,7 @@ serve(async (req) => {
       throw new Error("Failed to update model status in DB.");
     }
 
-    // 3. Reset user's active_trainings status AND refund credits
+    // 4. Reset user's active_trainings status AND refund credits
     const { error: profileUpdateError } = await supabaseAdmin
         .from('profiles')
         .update({ 
@@ -150,11 +165,9 @@ serve(async (req) => {
         // Log error but continue
     }
 
-    // 4. Clean up source files
+    // 5. Clean up source files
     await deleteSourceFiles(supabaseAdmin, user_id, model.name);
     
-    // NOTE: In a real app, you would also call Replicate's API here to cancel the running job using model.external_job_id.
-
     return new Response(JSON.stringify({ success: true, message: `Model successfully marked as failed and ${cost_in_credits} credits refunded.` }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 200,

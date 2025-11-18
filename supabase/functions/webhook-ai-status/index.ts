@@ -37,9 +37,10 @@ serve(async (req) => {
   try {
     const payload = await req.json();
     
-    // 2. Validate payload
-    const externalJobId = payload.id;
-    const status = payload.status; // e.g., 'succeeded', 'failed', 'canceled'
+    // ElevenLabs webhooks might send different fields (e.g., voice_id, status)
+    // We rely on externalJobId (which is the voice_id or prediction ID) and status.
+    const externalJobId = payload.id || payload.voice_id; 
+    const status = payload.status; // e.g., 'succeeded', 'failed', 'completed'
 
     if (!externalJobId || !status) {
       return new Response(JSON.stringify({ error: "Invalid webhook payload." }), {
@@ -49,7 +50,7 @@ serve(async (req) => {
     }
 
     let newStatus = status;
-    if (status === 'succeeded') {
+    if (status === 'succeeded' || status === 'completed') {
         newStatus = 'completed';
     } else if (status === 'canceled' || status === 'failed') {
         newStatus = 'failed'; 
@@ -122,7 +123,7 @@ serve(async (req) => {
 
     // 6. CRUCIAL: Delete source audio files if training succeeded OR failed
     if (newStatus === 'completed' || newStatus === 'failed') {
-        const sanitizedModelName = sanitizeModelName(model.name);
+        const sanitizedModelName = sanitizeFileName(model.name);
         const storagePathPrefix = `${user_id}/${sanitizedModelName}/`;
         const bucketName = 'audio-files';
 

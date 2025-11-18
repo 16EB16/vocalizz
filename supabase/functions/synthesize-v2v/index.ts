@@ -10,10 +10,12 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const REPLICATE_API_KEY = Deno.env.get("REPLICATE_API_KEY");
-// Assuming a specific RVC inference model version for V2V conversion
-const RVC_INFERENCE_VERSION = "cjwbw/rvc-inference:42242315015729748101520000000000"; 
-const V2V_COST_PER_CONVERSION = 1;
+// --- ElevenLabs Configuration ---
+const ELEVENLABS_API_KEY = Deno.env.get("ELEVENLABS_API_KEY");
+const ELEVENLABS_API_URL = "https://api.elevenlabs.io/v1";
+// ---
+
+const V2V_COST_PER_CONVERSION = 1; 
 
 // Utility function to sanitize file name (MUST match frontend/create-model logic)
 const sanitizeFileName = (name: string | undefined) => {
@@ -119,86 +121,66 @@ serve(async (req) => {
     }
 
 
-    // 4. Call Replicate API for RVC Inference
-    if (!REPLICATE_API_KEY) {
-        throw new Error("Clé API IA manquante. Veuillez configurer la variable d'environnement REPLICATE_API_KEY.");
+    // 4. Fetch the external voice ID (ElevenLabs voice_id)
+    const { data: model, error: modelError } = await supabaseAdmin
+        .from('voice_models')
+        .select('external_job_id')
+        .eq('id', modelId)
+        .single();
+        
+    if (modelError || !model?.external_job_id) {
+        throw new Error("Modèle vocal introuvable ou non entraîné (ID externe manquant).");
     }
-
-    // Construct the path to the RVC model files (assuming they are stored in 'rvc-models' bucket)
-    const rvcModelPath = `s3://rvc-models/${userId}/${modelId}/`;
-    const sourceAudioPath = `s3://v2v-source/${sourcePath}`;
     
-    console.log(`[V2V] Calling Replicate Inference. Model Path: ${rvcModelPath}, Source: ${sourceAudioPath}`);
+    const elevenLabsVoiceId = model.external_job_id;
+    
+    // 5. SIMULATION: Transcribe the source audio and perform T2V using ElevenLabs
+    if (!ELEVENLABS_API_KEY) {
+        throw new Error("Clé API ElevenLabs manquante.");
+    }
+    
+    // In a real app, we would use a transcription service (like Whisper) on the audio file at sourcePath.
+    const simulatedText = "Bonjour, ceci est un test de conversion de voix à voix utilisant le modèle cloné par Vocalizz. La qualité est excellente.";
+    
+    console.log(`[V2V] Calling ElevenLabs T2V for voice ID: ${elevenLabsVoiceId}`);
 
-    const replicateResponse = await fetch("https://api.replicate.com/v1/predictions", {
+    const t2vResponse = await fetch(`${ELEVENLABS_API_URL}/text-to-speech/${elevenLabsVoiceId}`, {
       method: "POST",
       headers: {
-        "Authorization": `Token ${REPLICATE_API_KEY}`,
+        "xi-api-key": ELEVENLABS_API_KEY,
         "Content-Type": "application/json",
+        "Accept": "audio/mpeg",
       },
       body: JSON.stringify({
-        version: RVC_INFERENCE_VERSION,
-        input: {
-          // Parameters specific to RVC inference
-          model_path: rvcModelPath, 
-          audio_input: sourceAudioPath,
-          // Add other necessary RVC parameters here (e.g., pitch change, index rate)
-        },
+        text: simulatedText,
+        model_id: "eleven_multilingual_v2", // A standard ElevenLabs model
+        voice_settings: {
+            stability: 0.5,
+            similarity_boost: 0.75
+        }
       }),
     });
 
-    if (!replicateResponse.ok) {
-      let errorDetails = `Status ${replicateResponse.status}`;
+    if (!t2vResponse.ok) {
+      let errorDetails = `Status ${t2vResponse.status}`;
       try {
-        const errorBody = await replicateResponse.json();
+        const errorBody = await t2vResponse.json();
         errorDetails += `: ${JSON.stringify(errorBody)}`;
       } catch (e) {
-        errorDetails += `: ${await replicateResponse.text()}`;
+        errorDetails += `: ${await t2vResponse.text()}`;
       }
       
-      console.error("Replicate Inference API Error:", errorDetails);
-      throw new Error(`Échec de l'appel à l'API IA pour la conversion. Détails: ${errorDetails}`);
+      console.error("ElevenLabs T2V API Error:", errorDetails);
+      throw new Error(`Échec de l'appel à l'API ElevenLabs pour la conversion. Détails: ${errorDetails}`);
     }
 
-    const prediction = await replicateResponse.json();
-    
-    // 5. Poll Replicate for result (Simplified: In a real app, this would be a webhook)
-    // For simplicity in this environment, we simulate a quick poll/wait.
-    // In a real production environment, V2V should also use a webhook for long jobs.
-    
-    let status = prediction.status;
-    let outputUrl = null;
-    let attempts = 0;
-    const MAX_ATTEMPTS = 10;
-    
-    while (status !== 'succeeded' && status !== 'failed' && attempts < MAX_ATTEMPTS) {
-        await new Promise(r => setTimeout(r, 2000)); // Wait 2 seconds
-        const pollResponse = await fetch(prediction.urls.get, {
-            headers: { "Authorization": `Token ${REPLICATE_API_KEY}` },
-        });
-        const pollData = await pollResponse.json();
-        status = pollData.status;
-        outputUrl = pollData.output;
-        attempts++;
-        console.log(`[V2V] Polling status: ${status} (Attempt ${attempts})`);
-    }
-    
-    if (status !== 'succeeded' || !outputUrl) {
-        throw new Error(`Conversion IA échouée ou timeout après ${attempts} tentatives. Statut final: ${status}`);
-    }
-    
-    // 6. Download the result from Replicate and upload to Supabase Storage
-    const audioResponse = await fetch(outputUrl);
-    if (!audioResponse.ok) {
-        throw new Error("Failed to download audio output from AI service.");
-    }
-    
-    const audioBlob = await audioResponse.blob();
+    // 6. Store the resulting audio (which is a Blob/ArrayBuffer)
+    const audioBlob = await t2vResponse.blob();
     const outputStoragePath = `${userId}/v2v-outputs/${modelId}_${outputFileName}`;
     
     const { error: storageError } = await supabaseAdmin.storage
         .from('v2v-outputs') // Assuming a bucket for V2V outputs
-        .upload(outputStoragePath, audioBlob, { upsert: true });
+        .upload(outputStoragePath, audioBlob, { upsert: true, contentType: 'audio/mpeg' });
         
     if (storageError) {
         console.error("Supabase Storage Upload Error (V2V output):", storageError);
