@@ -16,9 +16,9 @@ serve(async (req) => {
   }
 
   try {
-    // No authentication needed here, as this fetches public data via the service key
     if (!ELEVENLABS_API_KEY) {
-        throw new Response(JSON.stringify({ error: "ElevenLabs API Key is missing." }), {
+        // Return a specific error message if the key is missing
+        return new Response(JSON.stringify({ error: "ElevenLabs API Key is missing. Please configure the ELEVENLABS_API_KEY secret." }), {
             status: 500,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -36,7 +36,18 @@ serve(async (req) => {
     if (!elevenLabsResponse.ok) {
       const errorText = await elevenLabsResponse.text();
       console.error("ElevenLabs API Error:", errorText);
-      throw new Error(`ElevenLabs API failed: ${elevenLabsResponse.status} - ${errorText.substring(0, 100)}`);
+      
+      // Attempt to parse JSON error response from ElevenLabs if available
+      let errorMessage = `ElevenLabs API failed with status ${elevenLabsResponse.status}.`;
+      try {
+          const errorJson = JSON.parse(errorText);
+          errorMessage = errorJson.detail || errorMessage;
+      } catch (e) {
+          // If not JSON, use the text
+          errorMessage = errorText.substring(0, 200);
+      }
+      
+      throw new Error(`ElevenLabs API failed: ${errorMessage}`);
     }
 
     const data = await elevenLabsResponse.json();
