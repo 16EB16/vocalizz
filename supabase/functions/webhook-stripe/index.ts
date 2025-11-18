@@ -1,9 +1,9 @@
 // @ts-nocheck
 /// <reference types="https://deno.land/std@0.190.0/http/server.ts" />
-/// <reference types="https://esm.sh/@supabase/supabase-js@2.45.0" />
+/// <reference types="https://esm.sh/@supabase/supabase-js@2.43.0" />
 
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.43.0";
 import Stripe from "https://esm.sh/stripe@16.5.0?target=deno";
 
 const corsHeaders = {
@@ -57,7 +57,7 @@ serve(async (req) => {
     
     let customerId: string | undefined;
     let userId: string | undefined;
-    let updatePayload: { role?: 'free' | 'pro' | 'studio', stripe_customer_id?: string, credits?: number } = {};
+    let updatePayload: { role?: 'free' | 'pro' | 'studio', stripe_customer_id?: string, credits?: any } = {};
     let priceId: string | undefined;
 
     switch (event.type) {
