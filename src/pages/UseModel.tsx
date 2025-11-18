@@ -7,9 +7,10 @@ import { useUserStatus } from "@/hooks/use-user-status";
 import { useMemo, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { supabase } from "@/integrations/supabase/client"; // Import supabase client
-import { Label } from "@/components/ui/label"; // Import Label component
-import { Input } from "@/components/ui/input"; // Import Input component
+import { supabase } from "@/integrations/supabase/client"; 
+import { Label } from "@/components/ui/label"; 
+import { Input } from "@/components/ui/input"; 
+import { useV2VConversion } from "@/hooks/use-v2v-conversion"; // Import the new hook
 
 // Constants for V2V cost (Example: 1 credit per V2V conversion)
 const V2V_COST_PER_CONVERSION = 1; 
@@ -21,15 +22,16 @@ const UseModel = () => {
     const { data: models, isLoading: isModelsLoading } = useVoiceModels(userId);
     const { toast } = useToast();
     
+    const { mutate: convertAudio, isPending: isConverting, data: conversionResult } = useV2VConversion();
+    
     const [sourceFile, setSourceFile] = useState<File | null>(null);
-    const [isConverting, setIsConverting] = useState(false);
-    const [convertedAudioUrl, setConvertedAudioUrl] = useState<string | null>(null);
 
     const model = useMemo(() => {
         return models?.find(m => m.id === modelId);
     }, [models, modelId]);
     
     const hasEnoughCredits = credits >= V2V_COST_PER_CONVERSION;
+    const convertedAudioUrl = conversionResult?.url || null;
 
     if (isStatusLoading || isModelsLoading) {
         return (
@@ -61,7 +63,6 @@ const UseModel = () => {
         const file = e.target.files?.[0];
         if (file && (file.type === "audio/mp3" || file.type === "audio/wav" || file.type === "audio/mpeg")) {
             setSourceFile(file);
-            setConvertedAudioUrl(null); // Reset output
         } else if (file) {
             toast({
                 variant: "destructive",
@@ -72,59 +73,10 @@ const UseModel = () => {
         e.target.value = '';
     };
 
-    const handleConversion = async () => {
+    const handleConversion = () => {
         if (!sourceFile || !userId) return;
         
-        setIsConverting(true);
-        setConvertedAudioUrl(null);
-
-        try {
-            // 1. Upload Source File (V2V source files need a temporary bucket)
-            const sourceFileName = cn(model.id, sourceFile.name);
-            const sourcePath = `${userId}/v2v-source/${sourceFileName}`;
-            
-            const { error: uploadError } = await supabase.storage
-                .from('v2v-source') // Assuming a new temporary bucket for V2V inputs
-                .upload(sourcePath, sourceFile, { upsert: true });
-
-            if (uploadError) throw new Error(`Échec de l'upload de la source: ${uploadError.message}`);
-
-            // 2. Call Edge Function for V2V conversion (This function needs to be created later)
-            // NOTE: This is a placeholder for the actual V2V Edge Function call
-            toast({ title: "Conversion en cours", description: "Lancement de la conversion Voice-to-Voice..." });
-            
-            // Simulate API call and credit deduction
-            await new Promise(resolve => setTimeout(resolve, 3000)); 
-            
-            // Simulate successful response with a placeholder URL
-            const simulatedUrl = "https://example.com/converted_audio.mp3"; 
-            
-            // In a real scenario, the Edge Function would handle:
-            // - Credit deduction (V2V_COST_PER_CONVERSION)
-            // - Calling Replicate/AI service with RVC model ID (model.id) and source audio path
-            // - Storing the output audio in a bucket (e.g., 'v2v-outputs')
-            // - Returning a signed URL
-
-            setConvertedAudioUrl(simulatedUrl);
-            
-            // Force refresh credits (simulated)
-            supabase.auth.refreshSession(); 
-            
-            toast({
-                title: "Conversion terminée",
-                description: `Audio généré avec succès. ${V2V_COST_PER_CONVERSION} crédit(s) utilisé(s).`,
-            });
-
-        } catch (error: any) {
-            console.error("V2V Error:", error);
-            toast({
-                variant: "destructive",
-                title: "Erreur de conversion",
-                description: error.message || "Impossible de convertir l'audio.",
-            });
-        } finally {
-            setIsConverting(false);
-        }
+        convertAudio({ modelId: model.id, sourceFile, userId });
     };
 
     return (
@@ -216,12 +168,15 @@ const UseModel = () => {
                 </CardContent>
             </Card>
             
-            {/* --- Output Player (Placeholder) --- */}
+            {/* --- Output Player --- */}
             {convertedAudioUrl && (
                 <Card className="bg-green-500/10 border-green-500/50">
-                    <CardContent className="p-6 flex items-center justify-between">
+                    <CardContent className="p-6 space-y-4">
                         <p className="font-medium text-green-700">Conversion terminée. Écoutez ou téléchargez le résultat.</p>
-                        <Button variant="secondary" asChild>
+                        <audio controls src={convertedAudioUrl} className="w-full rounded-lg">
+                            Votre navigateur ne supporte pas l'élément audio.
+                        </audio>
+                        <Button variant="secondary" asChild className="w-full">
                             <a href={convertedAudioUrl} download={`vocalizz_${model.name}_conversion.mp3`}>Télécharger l'audio</a>
                         </Button>
                     </CardContent>
