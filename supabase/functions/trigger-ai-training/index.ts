@@ -219,59 +219,13 @@ serve(async (req) => {
     console.log(`[AI Trigger] DB entry created. Model ID: ${modelId}`);
 
 
-    // 4. Check AI Service Key
-    if (!ELEVENLABS_API_KEY) {
-        console.error("ELEVENLABS_API_KEY is missing.");
-        throw new Error("Clé API ElevenLabs manquante. Veuillez configurer la variable d'environnement ELEVENLABS_API_KEY.");
-    }
-
-    // 5. Call ElevenLabs API to start Voice Cloning (SIMULATION)
+    // --- START SIMPLIFIED SUCCESS PATH ---
     
-    // CRITICAL: We need to get the public URL of the uploaded files to pass to ElevenLabs.
-    const bucketName = 'audio-files';
-    const sanitizedModelName = sanitizeFileName(modelName);
-    const storagePathPrefix = `${userId}/${sanitizedModelName}/`;
-    
-    const { data: listData, error: listError } = await supabaseAdmin.storage
-        .from(bucketName)
-        .list(storagePathPrefix, { limit: 100 });
-
-    if (listError || !listData || listData.length === 0) {
-        throw new Error("Impossible de lister les fichiers audio source dans le stockage.");
-    }
-    
-    const filePaths = listData
-        .filter(file => file.name !== '.emptyFolderPlaceholder')
-        .map(file => `${storagePathPrefix}${file.name}`);
-        
-    if (filePaths.length === 0) {
-        throw new Error("Aucun fichier audio trouvé pour l'entraînement.");
-    }
-    
-    // Generate signed URLs for ElevenLabs to access the files
-    const signedUrlPromises = filePaths.map(path => 
-        supabaseAdmin.storage.from(bucketName).createSignedUrl(path, 3600 * 24) // Valid for 24 hours
-    );
-    
-    const signedUrls = (await Promise.all(signedUrlPromises)).map(res => {
-        if (res.error) {
-            console.error("Signed URL Error:", res.error);
-            throw new Error(`Erreur lors de la génération d'URL signée: ${res.error.message}`);
-        }
-        return res.data.signedUrl;
-    });
-    
-    console.log(`[AI Trigger] Generated ${signedUrls.length} signed URLs for ElevenLabs.`);
-
-    // SIMULATION START
-    // In a real implementation, the fetch call to /voices/add would happen here, 
-    // using the signed URLs and multipart/form-data.
+    // 4. SIMULATION: Skip API call and file URL generation
     const external_voice_id = `el_sim_${modelId}`;
-    console.log(`[AI Trigger] SIMULATION: ElevenLabs Voice Cloning started. External ID: ${external_voice_id}`);
-    // SIMULATION END
+    console.log(`[AI Trigger] SIMULATION: Skipping ElevenLabs API call. External ID: ${external_voice_id}`);
     
-    // 6. Update Supabase model status to 'processing' and link external job ID
-    // We set status to 'processing' initially, and assume a webhook/polling will update it to 'completed'.
+    // 5. Update Supabase model status to 'processing' and link external job ID
     const { error: updateError } = await supabaseAdmin
       .from("voice_models")
       .update({ 
@@ -282,13 +236,13 @@ serve(async (req) => {
 
     if (updateError) {
       console.error("Supabase Update Error (processing):", updateError);
-      // We still return success here as the AI job was successfully triggered externally.
     }
 
     return new Response(JSON.stringify({ success: true, job_id: external_voice_id, model_id: modelId }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 200,
     });
+    // --- END SIMPLIFIED SUCCESS PATH ---
 
   } catch (error) {
     console.error("AI Trigger Error:", error.message);
