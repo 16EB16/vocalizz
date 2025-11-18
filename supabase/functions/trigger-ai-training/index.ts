@@ -221,6 +221,7 @@ serve(async (req) => {
 
     // 4. Check AI Service Key
     if (!REPLICATE_API_KEY) {
+        console.error("REPLICATE_API_KEY is missing.");
         throw new Error("Clé API IA manquante. Veuillez configurer la variable d'environnement REPLICATE_API_KEY.");
     }
 
