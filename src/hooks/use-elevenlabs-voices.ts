@@ -38,13 +38,14 @@ export const useElevenLabsVoices = () => {
     
     // Prioritize voices that support multilingual models (v2) and are premade
     const relevantVoices = voices.filter(v => 
-        v.modelId.includes('multilingual_v2') && v.category === 'premade'
+        v.modelId?.includes('multilingual_v2') && v.category === 'premade'
     );
     
     // Sort: Put French voices first, then English/others
     relevantVoices.sort((a, b) => {
-        const aIsFrench = a.labels.language?.toLowerCase().includes('french');
-        const bIsFrench = b.labels.language?.toLowerCase().includes('french');
+        // Use optional chaining to safely access nested properties
+        const aIsFrench = a.labels?.language?.toLowerCase().includes('french');
+        const bIsFrench = b.labels?.language?.toLowerCase().includes('french');
         
         if (aIsFrench && !bIsFrench) return -1;
         if (!aIsFrench && bIsFrench) return 1;
