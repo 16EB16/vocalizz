@@ -9,6 +9,24 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      t2v_cache: {
+        Row: {
+          hash: string
+          storage_path: string
+          created_at: string
+        }
+        Insert: {
+          hash: string
+          storage_path: string
+          created_at?: string
+        }
+        Update: {
+          hash?: string
+          storage_path?: string
+          created_at?: string
+        }
+        Relationships: []
+      }
       voice_models: {
         Row: {
           audio_duration_seconds: number | null

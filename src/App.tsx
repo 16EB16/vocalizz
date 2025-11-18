@@ -7,6 +7,7 @@ import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
 import CreateModel from "./pages/CreateModel";
+import Synthesize from "./pages/Synthesize"; // Import new page
 import NotFound from "./pages/NotFound";
 import DashboardLayout from "./components/DashboardLayout";
 import Settings from "./pages/Settings";
@@ -27,6 +28,7 @@ const App = () => (
           <Route path="/" element={<DashboardLayout />}>
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/create" element={<CreateModel />} />
+            <Route path="/synthesize" element={<Synthesize />} /> {/* New Route */}
             <Route path="/settings" element={<Settings />} />
           </Route>
 
