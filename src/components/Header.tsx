@@ -1,7 +1,7 @@
 import React, { useMemo } from "react";
 import { NavLink } from "@/components/NavLink";
 import { cn } from "@/lib/utils";
-import { Home, PlusCircle, Settings, LogOut, Crown, User, Loader2, DollarSign, Volume2 } from "lucide-react";
+import { Home, PlusCircle, Settings, LogOut, Crown, User, Loader2, DollarSign } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useUserStatus } from "@/hooks/use-user-status";
 import { useUserProfile } from "@/hooks/use-user-profile"; // Import useUserProfile
@@ -95,7 +95,7 @@ export const Header = ({ onSignOut }: HeaderProps) => {
         <nav className="flex items-center gap-2">
           <NavItem to="/dashboard" icon={<Home className="h-4 w-4" />} label="Studio" />
           <NavItem to="/create" icon={<PlusCircle className="h-4 w-4" />} label="Créer Modèle" />
-          <NavItem to="/synthesize" icon={<Volume2 className="h-4 w-4" />} label="Synthèse T2V" />
+          {/* Removed Synthesize NavItem */}
           <NavItem to="/settings" icon={<Settings className="h-4 w-4" />} label="Paramètres" />
         </nav>
 

@@ -10,7 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useUserStatus } from "@/hooks/use-user-status";
 import { useVoiceModels, VoiceModel } from "@/hooks/use-voice-models";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Download, Trash2, Clock, Crown, Zap, Loader2, AlertTriangle, Cpu, Mic, Ban, Sparkles, X, DollarSign, ThumbsUp, ThumbsDown } from "lucide-react";
+import { Plus, Download, Trash2, Clock, Crown, Zap, Loader2, AlertTriangle, Cpu, Mic, Ban, Sparkles, X, DollarSign, ThumbsUp, ThumbsDown, Volume2 } from "lucide-react";
 import BillingPortalButton from "@/components/BillingPortalButton";
 import { formatDurationString } from "@/lib/audio-utils";
 import ModelCardSkeleton from "@/components/ModelCardSkeleton";
@@ -484,15 +484,25 @@ const Dashboard = () => {
                   </div>
                   <div className="flex gap-2 pt-2 items-center">
                     {isCompleted && (
-                      <Button 
-                        variant="default" 
-                        size="sm" 
-                        className="flex-1 gap-2 bg-primary hover:bg-primary/90"
-                        onClick={() => handleDownloadModel(model)}
-                      >
-                        <Download className="w-4 h-4" />
-                        Télécharger
-                      </Button>
+                      <>
+                        <Button 
+                            variant="default" 
+                            size="sm" 
+                            className="flex-1 gap-2 bg-primary hover:bg-primary/90"
+                            onClick={() => navigate(`/use-model/${model.id}`)} // NEW: Use Model Button
+                        >
+                            <Volume2 className="w-4 h-4" />
+                            Utiliser le modèle
+                        </Button>
+                        <Button 
+                            variant="outline" 
+                            size="icon" 
+                            onClick={() => handleDownloadModel(model)}
+                            title="Télécharger les fichiers RVC"
+                        >
+                            <Download className="w-4 h-4" />
+                        </Button>
+                      </>
                     )}
                     
                     {isProcessing && (
