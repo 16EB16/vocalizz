@@ -10,14 +10,15 @@ import { useToast } from "@/hooks/use-toast";
 import { useUserStatus } from "@/hooks/use-user-status";
 import { useVoiceModels, VoiceModel } from "@/hooks/use-voice-models";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Download, Trash2, Clock, Crown, Zap, Loader2, AlertTriangle, Cpu, Mic, Ban, Sparkles, X, DollarSign } from "lucide-react";
+import { Plus, Download, Trash2, Clock, Crown, Zap, Loader2, AlertTriangle, Cpu, Mic, Ban, Sparkles, X, DollarSign, ThumbsUp, ThumbsDown } from "lucide-react";
 import BillingPortalButton from "@/components/BillingPortalButton";
 import { formatDurationString } from "@/lib/audio-utils";
 import ModelCardSkeleton from "@/components/ModelCardSkeleton";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { useCancelModel } from "@/hooks/use-cancel-model";
-import { estimateTrainingDurationMinutes } from "@/lib/model-utils"; // Import utility
+import { estimateTrainingDurationMinutes } from "@/lib/model-utils";
+import { useModelFeedback } from "@/hooks/use-model-feedback"; // Import the feedback hook
 
 const MAX_FREE_MODELS = 5;
 
@@ -48,8 +49,8 @@ const Dashboard = () => {
     userId, 
     isLoading: isUserStatusLoading, 
     is_in_training, // True if active_trainings >= max_active_trainings
-    active_trainings,
-    max_active_trainings,
+    active_trainings, // Current count
+    max_active_trainings, // Max allowed count
     credits, 
     role 
   } = useUserStatus();
@@ -57,6 +58,8 @@ const Dashboard = () => {
   
   // Use the generic cancel hook
   const { mutate: cancelModel, isPending: isCancelling } = useCancelModel(); 
+  // Use the feedback hook
+  const { mutate: submitFeedback, isPending: isSubmittingFeedback } = useModelFeedback();
 
   // Update current time every second for the elapsed timer
   useEffect(() => {
@@ -136,6 +139,10 @@ const Dashboard = () => {
           // isManualCancel: true for manual cancellation
           cancelModel({ modelId, userId, isManualCancel: true }); 
       }
+  };
+  
+  const handleFeedback = (modelId: string, rating: 1 | 5) => {
+      submitFeedback({ modelId, rating });
   };
   
 
@@ -326,6 +333,7 @@ const Dashboard = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {modelList.map((model) => {
             const isProcessing = model.status === "processing" || model.status === "preprocessing";
+            const isCompleted = model.status === "completed";
             
             let timeElapsed = 0;
             let estimatedDurationMinutes = 0;
@@ -420,8 +428,6 @@ const Dashboard = () => {
                             </Button>
                         </div>
                       )}
-                      
-                      {/* Removed DEBUG BUTTONS */}
                     </div>
                   )}
                   {model.status === "failed" && (
@@ -476,8 +482,8 @@ const Dashboard = () => {
                       ({model.audio_duration_seconds !== null ? formatDurationString(model.audio_duration_seconds) : "Durée inconnue"})
                     </span>
                   </div>
-                  <div className="flex gap-2 pt-2">
-                    {model.status === "completed" && (
+                  <div className="flex gap-2 pt-2 items-center">
+                    {isCompleted && (
                       <Button 
                         variant="default" 
                         size="sm" 
@@ -485,7 +491,7 @@ const Dashboard = () => {
                         onClick={() => handleDownloadModel(model)}
                       >
                         <Download className="w-4 h-4" />
-                        Télécharger le modèle
+                        Télécharger
                       </Button>
                     )}
                     
@@ -521,6 +527,51 @@ const Dashboard = () => {
                             </AlertDialogContent>
                         </AlertDialog>
                     )}
+                    
+                    {/* --- NEW: Feedback Buttons --- */}
+                    {isCompleted && (
+                        <>
+                            <Tooltip delayDuration={100}>
+                                <TooltipTrigger asChild>
+                                    <Button
+                                        variant="outline"
+                                        size="icon"
+                                        onClick={() => handleFeedback(model.id, 5)}
+                                        disabled={isSubmittingFeedback || model.feedback_rating === 5}
+                                        className={cn(
+                                            "hover:text-green-600",
+                                            model.feedback_rating === 5 && "bg-green-500/20 text-green-600 border-green-500"
+                                        )}
+                                    >
+                                        {isSubmittingFeedback ? <Loader2 className="w-4 h-4 animate-spin" /> : <ThumbsUp className="w-4 h-4" />}
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                    J'aime ce modèle (5/5)
+                                </TooltipContent>
+                            </Tooltip>
+                            <Tooltip delayDuration={100}>
+                                <TooltipTrigger asChild>
+                                    <Button
+                                        variant="outline"
+                                        size="icon"
+                                        onClick={() => handleFeedback(model.id, 1)}
+                                        disabled={isSubmittingFeedback || model.feedback_rating === 1}
+                                        className={cn(
+                                            "hover:text-destructive",
+                                            model.feedback_rating === 1 && "bg-destructive/20 text-destructive border-destructive"
+                                        )}
+                                    >
+                                        {isSubmittingFeedback ? <Loader2 className="w-4 h-4 animate-spin" /> : <ThumbsDown className="w-4 h-4" />}
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                    Amélioration nécessaire (1/5)
+                                </TooltipContent>
+                            </Tooltip>
+                        </>
+                    )}
+                    {/* --- END NEW: Feedback Buttons --- */}
                     
                     <AlertDialog>
                         <AlertDialogTrigger asChild>
