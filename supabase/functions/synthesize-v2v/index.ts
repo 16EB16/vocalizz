@@ -43,6 +43,7 @@ serve(async (req) => {
   let modelId: string | undefined;
   let sourcePath: string | undefined;
   let outputFileName: string | undefined;
+  let isTestMode = false; // Default to false
 
   try {
     // 1. Authenticate user via JWT
@@ -72,6 +73,7 @@ serve(async (req) => {
     modelId = body.model_id;
     sourcePath = body.source_path;
     outputFileName = body.output_file_name;
+    isTestMode = body.is_test_mode || false; // NEW: Read test mode flag
 
     if (!modelId || !sourcePath || !outputFileName) {
       return new Response(JSON.stringify({ error: "Missing required parameters (model_id, source_path, output_file_name)." }), {
@@ -80,37 +82,41 @@ serve(async (req) => {
       });
     }
     
-    // 3. Deduct Credit
-    console.log(`[V2V] Attempting to deduct ${V2V_COST_PER_CONVERSION} credit for user ${userId}.`);
-    
-    const { data: profile, error: profileError } = await supabaseAdmin
-        .from('profiles')
-        .select('credits')
-        .eq('id', userId)
-        .single();
-
-    if (profileError || !profile) {
-        throw new Error("Profile not found.");
-    }
-    
-    if (profile.credits < V2V_COST_PER_CONVERSION) {
-        return new Response(JSON.stringify({ error: "Insufficient credits for V2V conversion." }), {
-            status: 402, // Payment Required
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-    }
-    
-    // Perform credit deduction
-    const { error: deductionError } = await supabaseAdmin
-        .from('profiles')
-        .update({ credits: profile.credits - V2V_COST_PER_CONVERSION })
-        .eq('id', userId);
+    // 3. Deduct Credit (or skip in test mode)
+    if (!isTestMode) {
+        console.log(`[V2V] Attempting to deduct ${V2V_COST_PER_CONVERSION} credit for user ${userId}.`);
         
-    if (deductionError) {
-        console.error("Credit deduction failed:", deductionError);
-        throw new Error("Failed to deduct credits.");
+        const { data: profile, error: profileError } = await supabaseAdmin
+            .from('profiles')
+            .select('credits')
+            .eq('id', userId)
+            .single();
+
+        if (profileError || !profile) {
+            throw new Error("Profile not found.");
+        }
+        
+        if (profile.credits < V2V_COST_PER_CONVERSION) {
+            return new Response(JSON.stringify({ error: "Insufficient credits for V2V conversion." }), {
+                status: 402, // Payment Required
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+        }
+        
+        // Perform credit deduction
+        const { error: deductionError } = await supabaseAdmin
+            .from('profiles')
+            .update({ credits: profile.credits - V2V_COST_PER_CONVERSION })
+            .eq('id', userId);
+            
+        if (deductionError) {
+            console.error("Credit deduction failed:", deductionError);
+            throw new Error("Failed to deduct credits.");
+        }
+        console.log("[V2V] Credit deducted successfully.");
+    } else {
+        console.log("[V2V] MODE TEST: Skipping credit deduction.");
     }
-    console.log("[V2V] Credit deducted successfully.");
 
 
     // 4. Call Replicate API for RVC Inference
@@ -221,8 +227,8 @@ serve(async (req) => {
   } catch (error) {
     console.error("V2V Conversion Error:", error.message);
     
-    // CRITICAL: If an error occurred AFTER credit deduction, refund the credit.
-    if (userId && modelId && error.message.includes("Failed to deduct credits") === false) {
+    // CRITICAL: If an error occurred AFTER credit deduction, refund the credit (only if not in test mode).
+    if (userId && modelId && error.message.includes("Failed to deduct credits") === false && !isTestMode) {
         console.log(`[V2V] Attempting to refund ${V2V_COST_PER_CONVERSION} credit due to failure.`);
         const { error: refundError } = await supabaseAdmin
             .from('profiles')

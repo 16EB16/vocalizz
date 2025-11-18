@@ -7,7 +7,7 @@ import { useUserStatus } from "@/hooks/use-user-status";
 import { useMemo, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import V2VSourceUpload from "@/components/V2VSourceUpload"; // Import new component
+import V2VSourceUpload from "@/components/V2VSourceUpload";
 import { useV2VConversion } from "@/hooks/use-v2v-conversion";
 
 // Constants for V2V cost
@@ -16,7 +16,7 @@ const V2V_COST_PER_CONVERSION = 1;
 const UseModel = () => {
     const { modelId } = useParams<{ modelId: string }>();
     const navigate = useNavigate();
-    const { userId, credits, isLoading: isStatusLoading } = useUserStatus();
+    const { userId, credits, isLoading: isStatusLoading, isTestMode } = useUserStatus();
     const { data: models, isLoading: isModelsLoading } = useVoiceModels(userId);
     const { toast } = useToast();
     
@@ -28,7 +28,8 @@ const UseModel = () => {
         return models?.find(m => m.id === modelId);
     }, [models, modelId]);
     
-    const hasEnoughCredits = credits >= V2V_COST_PER_CONVERSION;
+    // In test mode, credits are always sufficient
+    const hasEnoughCredits = isTestMode || credits >= V2V_COST_PER_CONVERSION;
     const convertedAudioUrl = conversionResult?.url || null;
 
     if (isStatusLoading || isModelsLoading) {
@@ -60,7 +61,7 @@ const UseModel = () => {
     const handleConversion = () => {
         if (!sourceFile || !userId) return;
         
-        convertAudio({ modelId: model.id, sourceFile, userId });
+        convertAudio({ modelId: model.id, sourceFile, userId, isTestMode });
     };
 
     return (
@@ -76,6 +77,12 @@ const UseModel = () => {
                 </h1>
                 <p className="text-muted-foreground">Convertissez une piste audio source en utilisant la voix de votre modèle IA.</p>
             </div>
+            
+            {isTestMode && (
+                <div className="p-3 mb-6 bg-yellow-500/10 border border-yellow-500/50 text-yellow-700 rounded-lg font-medium">
+                    ⚠️ MODE TEST ACTIF : Les crédits ne sont pas déduits.
+                </div>
+            )}
 
             {/* --- STEP 1: Upload Source Audio --- */}
             <Card>

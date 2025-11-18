@@ -7,6 +7,7 @@ interface V2VPayload {
   modelId: string;
   sourceFile: File;
   userId: string;
+  isTestMode: boolean; // NEW
 }
 
 interface V2VResponse {
@@ -15,7 +16,7 @@ interface V2VResponse {
 
 const V2V_COST_PER_CONVERSION = 1; 
 
-const performV2VConversion = async ({ modelId, sourceFile, userId }: V2VPayload): Promise<V2VResponse> => {
+const performV2VConversion = async ({ modelId, sourceFile, userId, isTestMode }: V2VPayload): Promise<V2VResponse> => {
   
   // 1. Upload Source File to temporary bucket
   const sanitizedFileName = sanitizeFileName(sourceFile.name);
@@ -38,6 +39,7 @@ const performV2VConversion = async ({ modelId, sourceFile, userId }: V2VPayload)
       model_id: modelId,
       source_path: sourcePath, // Pass the path relative to the bucket root
       output_file_name: outputFileName,
+      is_test_mode: isTestMode, // NEW: Pass test mode flag
     },
   });
 
@@ -65,13 +67,15 @@ export const useV2VConversion = () => {
 
   return useMutation({
     mutationFn: performV2VConversion,
-    onSuccess: (data) => {
-      // Invalidate user profile to reflect credit deduction
-      queryClient.invalidateQueries({ queryKey: ["userProfile"] });
+    onSuccess: (data, variables) => {
+      // Invalidate user profile to reflect credit deduction (only if not in test mode)
+      if (!variables.isTestMode) {
+        queryClient.invalidateQueries({ queryKey: ["userProfile"] });
+      }
       
       toast({
         title: "Conversion terminée",
-        description: `Audio généré avec succès. ${V2V_COST_PER_CONVERSION} crédit(s) utilisé(s).`,
+        description: `Audio généré avec succès. ${V2V_COST_PER_CONVERSION} crédit(s) utilisé(s)${variables.isTestMode ? ' (mode test)' : ''}.`,
       });
       
       return data;

@@ -23,7 +23,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useAudioAnalysis } from "@/hooks/use-audio-analysis";
 import { useCancelModel } from "@/hooks/use-cancel-model";
 import { useVoiceModels } from "@/hooks/use-voice-models";
-import { useDragAndDrop } from "@/hooks/use-drag-and-drop"; // Import the new hook
+import { useDragAndDrop } from "@/hooks/use-drag-and-drop";
 import { 
   POCH_STANDARD, 
   POCH_PREMIUM, 
@@ -63,7 +63,8 @@ const CreateModel = () => {
     active_trainings, // Current count
     max_active_trainings, // Max allowed count
     credits, 
-    role 
+    role,
+    isTestMode // NEW: Get test mode flag
   } = useUserStatus();
   const { data: models } = useVoiceModels(userId);
   
@@ -78,7 +79,7 @@ const CreateModel = () => {
   const [cleaningOption, setCleaningOption] = useState<'none' | 'premium'>('none');
 
   const { mutate: cancelModel, isPending: isCancelling } = useCancelModel();
-  const { isDragging, handleDragOver, handleDragLeave, handleDrop } = useDragAndDrop(); // Use the new hook
+  const { isDragging, handleDragOver, handleDragLeave, handleDrop } = useDragAndDrop();
 
   const form = useForm<ModelFormValues>({
     resolver: zodResolver(formSchema),
@@ -99,7 +100,8 @@ const CreateModel = () => {
     return calculateCreditCost(qualityPochWatch, cleaningOption);
   }, [qualityPochWatch, cleaningOption]);
   
-  const hasEnoughCredits = credits >= creditCost;
+  // In test mode, credits are always sufficient
+  const hasEnoughCredits = isTestMode || credits >= creditCost;
   // --- END CREDIT LOGIC ---
 
   const isOverSizeLimit = totalSize > MAX_TOTAL_SIZE_MB * 1024 * 1024;
@@ -344,6 +346,7 @@ const CreateModel = () => {
           score_qualite_source: finalQualityScore, // Pass score for DB entry
           is_premium_model: isPremiumModel, // Pass flag for DB entry
           cost_in_credits: finalCreditCost, // CRITICAL: Pass cost
+          is_test_mode: isTestMode, // NEW: Pass test mode flag
           
           // Data needed for AI service
           storage_path: `${storagePathPrefix}/`, 
@@ -370,7 +373,7 @@ const CreateModel = () => {
 
       toast({
         title: "Modèle créé !",
-        description: `Vos ${finalCreditCost} crédits ont été utilisés. Le modèle est en cours de traitement.`,
+        description: `Vos ${finalCreditCost} crédits ont été utilisés (ou ignorés en mode test). Le modèle est en cours de traitement.`,
       });
 
       navigate("/dashboard");
@@ -455,6 +458,12 @@ const CreateModel = () => {
         <h1 className="text-3xl font-bold text-foreground">Créer un modèle</h1>
         <p className="text-muted-foreground">Générez votre modèle de voix IA</p>
       </div>
+      
+      {isTestMode && (
+        <div className="p-3 mb-6 bg-yellow-500/10 border border-yellow-500/50 text-yellow-700 rounded-lg font-medium">
+            ⚠️ MODE TEST ACTIF : Les crédits ne sont pas déduits et les limites d'entraînement sont ignorées.
+        </div>
+      )}
 
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
@@ -581,7 +590,7 @@ const CreateModel = () => {
                     <FormControl>
                       <RadioGroup
                         onValueChange={(value) => {
-                          if (Number(value) === POCH_PREMIUM && role === 'free') {
+                          if (Number(value) === POCH_PREMIUM && role === 'free' && !isTestMode) {
                             toast({ 
                                 variant: "destructive", 
                                 title: "Accès refusé", 
@@ -613,14 +622,14 @@ const CreateModel = () => {
                           <TooltipTrigger asChild>
                             <div className={cn(
                               "p-3 border rounded-lg transition-colors",
-                              role === 'free' && "opacity-50 cursor-not-allowed bg-muted/50",
-                              role !== 'free' && field.value === String(POCH_PREMIUM) && "border-primary"
+                              role === 'free' && !isTestMode && "opacity-50 cursor-not-allowed bg-muted/50",
+                              (role !== 'free' || isTestMode) && field.value === String(POCH_PREMIUM) && "border-primary"
                             )}>
                               <FormItem className="flex items-center space-x-3 space-y-0">
                                 <FormControl>
                                   <RadioGroupItem 
                                     value={String(POCH_PREMIUM)} 
-                                    disabled={role === 'free'}
+                                    disabled={role === 'free' && !isTestMode}
                                   />
                                 </FormControl>
                                 <FormLabel className="font-normal flex-1 flex items-center justify-between cursor-pointer">
@@ -634,7 +643,7 @@ const CreateModel = () => {
                               </FormItem>
                             </div>
                           </TooltipTrigger>
-                          {role === 'free' && (
+                          {role === 'free' && !isTestMode && (
                             <TooltipContent className="bg-yellow-600 text-white border-yellow-700">
                               <p>Réservé aux membres Pro ou Studio pour un rendu Haute Fidélité.</p>
                             </TooltipContent>

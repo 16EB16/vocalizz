@@ -73,6 +73,7 @@ serve(async (req) => {
   let userId: string | undefined;
   let modelName: string | undefined; 
   let cost_in_credits: number | undefined;
+  let isTestMode = false; // Default to false
   
   // Initialize Supabase Admin client (used for server-side updates and RPC calls)
   const supabaseAdmin = createClient(
@@ -121,11 +122,13 @@ serve(async (req) => {
         audio_duration_seconds,
         score_qualite_source,
         is_premium_model,
-        cost_in_credits: body_cost_in_credits // Renamed to avoid conflict
+        cost_in_credits: body_cost_in_credits,
+        is_test_mode // NEW: Read test mode flag
     } = body;
     
     modelName = model_name;
-    cost_in_credits = body_cost_in_credits; // Store cost for potential refund
+    cost_in_credits = body_cost_in_credits;
+    isTestMode = is_test_mode || false; // Ensure it's a boolean
 
     // Security check: Ensure the user ID in the body matches the authenticated user ID
     if (body_user_id !== userId) {
@@ -141,38 +144,79 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-
+    
     // 3. CRITICAL: Deduct credits and create model entry using RPC
-    console.log(`[AI Trigger] Étape 1: Appel RPC pour déduire ${cost_in_credits} crédits et créer l'entrée DB.`);
-    const { data: new_model_id, error: rpcError } = await supabaseAdmin.rpc('deduct_credits_and_create_model', {
-        p_user_id: userId,
-        p_cost_in_credits: cost_in_credits,
-        p_model_name: model_name,
-        p_quality: quality,
-        p_poch_value: poch_value,
-        p_file_count: file_count,
-        p_audio_duration_seconds: audio_duration_seconds,
-        p_score_qualite_source: score_qualite_source,
-        p_cleaning_applied: cleaning_option === 'premium',
-        p_is_premium_model: is_premium_model
-    });
-
-    if (rpcError) {
-        // Check for the specific credit error message from the RPC function
-        if (rpcError.message.includes('Insufficient credits') || rpcError.message.includes('Training limit reached')) {
-            // 402 for credits, 403 for limit reached (handled by frontend error display)
-            const status = rpcError.message.includes('Insufficient credits') ? 402 : 403; 
-            return new Response(JSON.stringify({ error: rpcError.message }), {
-                status: status, 
-                headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
+    if (isTestMode) {
+        console.log(`[AI Trigger] MODE TEST: Skipping credit deduction and limit check.`);
+        
+        // Manually create the model entry without RPC (since RPC handles deduction/limit check)
+        const { data: newModel, error: insertError } = await supabaseAdmin
+            .from('voice_models')
+            .insert({
+                user_id: userId,
+                name: model_name,
+                quality: quality,
+                poch_value: poch_value,
+                status: 'preprocessing',
+                file_count: file_count,
+                audio_duration_seconds: audio_duration_seconds,
+                score_qualite_source: score_qualite_source,
+                cleaning_applied: cleaning_option === 'premium',
+                is_premium_model: is_premium_model,
+                cost_in_credits: 0, // Cost is 0 in test mode
+            })
+            .select('id')
+            .single();
+            
+        if (insertError) {
+            console.error("Test Mode DB Insert Error:", insertError);
+            throw new Error(`Erreur de création de modèle en mode test: ${insertError.message}`);
         }
-        console.error("RPC Error (deduct_credits_and_create_model):", rpcError);
-        throw new Error(`Erreur de transaction de crédits: ${rpcError.message}`);
+        modelId = newModel.id;
+        
+        // Manually increment active_trainings (since RPC handles this normally)
+        const { error: updateError } = await supabaseAdmin
+            .from('profiles')
+            .update({ active_trainings: supabaseAdmin.raw('active_trainings + 1') })
+            .eq('id', userId);
+            
+        if (updateError) {
+            console.error("Test Mode Profile Update Error:", updateError);
+        }
+        
+    } else {
+        console.log(`[AI Trigger] Étape 1/5: Appel RPC pour déduire ${cost_in_credits} crédits et créer l'entrée DB.`);
+        const { data: new_model_id, error: rpcError } = await supabaseAdmin.rpc('deduct_credits_and_create_model', {
+            p_user_id: userId,
+            p_cost_in_credits: cost_in_credits,
+            p_model_name: model_name,
+            p_quality: quality,
+            p_poch_value: poch_value,
+            p_file_count: file_count,
+            p_audio_duration_seconds: audio_duration_seconds,
+            p_score_qualite_source: score_qualite_source,
+            p_cleaning_applied: cleaning_option === 'premium',
+            p_is_premium_model: is_premium_model
+        });
+
+        if (rpcError) {
+            // Check for the specific credit error message from the RPC function
+            if (rpcError.message.includes('Insufficient credits') || rpcError.message.includes('Training limit reached')) {
+                // 402 for credits, 403 for limit reached (handled by frontend error display)
+                const status = rpcError.message.includes('Insufficient credits') ? 402 : 403; 
+                return new Response(JSON.stringify({ error: rpcError.message }), {
+                    status: status, 
+                    headers: { ...corsHeaders, "Content-Type": "application/json" },
+                });
+            }
+            console.error("RPC Error (deduct_credits_and_create_model):", rpcError);
+            throw new Error(`Erreur de transaction de crédits: ${rpcError.message}`);
+        }
+        
+        modelId = new_model_id; // Store the newly created model ID
     }
     
-    modelId = new_model_id; // Store the newly created model ID
-    console.log(`[AI Trigger] RPC réussi. Model ID: ${modelId}`);
+    console.log(`[AI Trigger] DB entry created. Model ID: ${modelId}`);
 
 
     // 4. Check AI Service Key
@@ -247,13 +291,13 @@ serve(async (req) => {
   } catch (error) {
     console.error("AI Trigger Error:", error.message);
     
-    // If an error occurred AFTER the RPC call (i.e., during Replicate call), 
-    // we must mark the model as failed, reset active_trainings, and refund credits.
+    // If an error occurred AFTER the DB entry was created (modelId exists), 
+    // we must mark the model as failed, reset active_trainings, and refund credits (if not test mode).
     if (modelId && userId && cost_in_credits !== undefined) {
         const errorMessage = error.message || "Internal Server Error";
         
         // 7. Refund credits and mark as failed
-        console.log(`[AI Trigger] Tentative de remboursement de ${cost_in_credits} crédits pour l'échec du modèle ${modelId}.`);
+        console.log(`[AI Trigger] Tentative de gestion de l'échec du modèle ${modelId}.`);
         
         // Update model status
         const { error: failError } = await supabaseAdmin
@@ -265,13 +309,22 @@ serve(async (req) => {
             console.error("Failed to mark model as failed:", failError);
         }
         
-        // Reset user training status (decrement active_trainings) and refund credits
+        // Reset user training status (decrement active_trainings)
+        const profileUpdatePayload: { active_trainings: any, credits?: any } = {
+            active_trainings: supabaseAdmin.raw('active_trainings - 1')
+        };
+        
+        // Refund credits ONLY if not in test mode
+        if (!isTestMode) {
+            profileUpdatePayload.credits = supabaseAdmin.raw('credits + ??', cost_in_credits); // Safely increment credits
+            console.log(`[AI Trigger] Remboursement de ${cost_in_credits} crédits.`);
+        } else {
+            console.log(`[AI Trigger] MODE TEST: Remboursement de crédits ignoré.`);
+        }
+        
         const { error: refundError } = await supabaseAdmin
             .from('profiles')
-            .update({ 
-                active_trainings: supabaseAdmin.raw('active_trainings - 1'), // Decrement counter
-                credits: supabaseAdmin.raw('credits + ??', cost_in_credits) // Safely increment credits
-            })
+            .update(profileUpdatePayload)
             .eq('id', userId);
             
         if (refundError) {
